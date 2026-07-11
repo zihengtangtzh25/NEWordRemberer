@@ -132,6 +132,9 @@ class UIManager {
         const progress = document.getElementById('review-progress');
         progress.textContent = `${this.reviewIndex + 1}/${this.reviewWords.length}`;
         
+        document.getElementById('next-word-btn').style.display = 'none';
+        document.getElementById('next-word-btn-en').style.display = 'none';
+        
         const cnModeBtn = document.getElementById('cn-mode-btn');
         const enModeBtn = document.getElementById('en-mode-btn');
         
@@ -267,6 +270,8 @@ class UIManager {
         
         document.getElementById('user-input').disabled = true;
         this.isAnswered = true;
+        
+        document.getElementById('next-word-btn').style.display = 'block';
     }
 
     selectOption(index) {
@@ -310,6 +315,12 @@ class UIManager {
         });
         
         this.isAnswered = true;
+        
+        if (result === '对') {
+            setTimeout(() => this.nextWord(), 500);
+        } else {
+            document.getElementById('next-word-btn-en').style.display = 'block';
+        }
     }
 
     setResult(result) {
@@ -526,6 +537,49 @@ class UIManager {
         this.showPage('review');
     }
 
+    exportResults() {
+        const task = this.taskManager.getTodayTask();
+        if (!task || !task.results || task.results.length === 0) {
+            alert('今日没有背诵记录可导出');
+            return;
+        }
+        
+        const today = this.wordBank.getCustomDate() || new Date().toISOString().split('T')[0];
+        const exportData = {
+            date: today,
+            totalWords: task.results.length,
+            newWords: task.newWords.length,
+            reviewWords: task.reviewWords.length,
+            results: task.results.map(r => {
+                const word = this.wordBank.getWord(r.word);
+                const meanings = word ? JSON.parse(word.m) : [];
+                return {
+                    word: r.word,
+                    result: r.result,
+                    type: r.type,
+                    definitions: meanings.flatMap(m => m.c).join('、')
+                };
+            }),
+            retryResults: this.retryResults.map((round, idx) => ({
+                round: idx + 1,
+                results: round.map(r => ({
+                    word: r.word,
+                    result: r.result
+                }))
+            }))
+        };
+        
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `背诵结果_${today}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
     searchWord() {
         const query = document.getElementById('search-input').value.trim();
         const resultDiv = document.getElementById('search-result');
@@ -687,6 +741,14 @@ class UIManager {
             this.checkAnswer();
         });
         
+        document.getElementById('next-word-btn').addEventListener('click', () => {
+            this.nextWord();
+        });
+        
+        document.getElementById('next-word-btn-en').addEventListener('click', () => {
+            this.nextWord();
+        });
+        
         document.getElementById('btn-correct').addEventListener('click', () => this.setResult('对'));
         document.getElementById('btn-unfamiliar').addEventListener('click', () => this.setResult('不熟'));
         document.getElementById('btn-wrong').addEventListener('click', () => this.setResult('错'));
@@ -706,6 +768,7 @@ class UIManager {
         document.getElementById('retry-wrong-btn').addEventListener('click', () => this.retryWrong());
         document.getElementById('retry-first-btn').addEventListener('click', () => this.retryFirstWrong());
         document.getElementById('redo-today-btn').addEventListener('click', () => this.redoTodayTask());
+        document.getElementById('export-results-btn').addEventListener('click', () => this.exportResults());
         
         document.getElementById('set-date-btn').addEventListener('click', () => this.setCustomDate());
         document.getElementById('clear-records-btn').addEventListener('click', () => this.clearRecords());
