@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEWordRemberer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>NEWordRemberer</h1>
+        <nav>
+            <button id="home-nav">首页</button>
+            <button id="wordbank-nav">词库</button>
+            <button id="results-nav">背诵结果</button>
+        </nav>
+    </header>
+
+    <main>
+        <div id="home-page" class="page">
+            <section class="section">
+                <h2>加入单词</h2>
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="输入英文单词">
+                    <button id="search-btn">搜索</button>
+                </div>
+                <div id="search-result"></div>
+                <div id="add-word-form" style="display: none;">
+                    <h3>录入新单词</h3>
+                    <div>
+                        <label>单词：</label>
+                        <input type="text" id="new-word-name">
+                    </div>
+                    <div>
+                        <label>词性：</label>
+                        <input type="text" id="new-word-pos" placeholder="如 n., v., adj.">
+                    </div>
+                    <div>
+                        <label>释义：</label>
+                        <input type="text" id="new-word-definitions" placeholder="多个释义用逗号分隔">
+                    </div>
+                    <button id="add-word-btn">添加</button>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>词库简略</h2>
+                <div class="stats">
+                    <div class="stat-item">
+                        <span class="stat-label">词库总数</span>
+                        <span class="stat-value" id="total-words">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">未背诵</span>
+                        <span class="stat-value" id="unreviewed-words">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">待复习</span>
+                        <span class="stat-value" id="review-due-words">0</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>计划区</h2>
+                <div id="create-task-section">
+                    <div class="task-input">
+                        <label>背诵数量：</label>
+                        <input type="number" id="new-count" min="0" value="25">
+                        <label>复习数量：</label>
+                        <input type="number" id="review-count" min="0" value="100">
+                    </div>
+                    <button id="create-task-btn">创建任务</button>
+                </div>
+                <div id="task-status"></div>
+                <button id="start-review-btn" style="display: none;">开始背诵</button>
+            </section>
+
+            <section class="section">
+                <h2>系统设置</h2>
+                <div class="settings">
+                    <div>
+                        <label>今日日期：</label>
+                        <input type="date" id="custom-date" value="">
+                        <button id="set-date-btn">设置日期</button>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button id="clear-records-btn" style="background-color: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">清除所有背诵记录</button>
+                    </div>
+                    <div id="settings-status" style="margin-top: 10px; color: #4CAF50;"></div>
+                </div>
+            </section>
+        </div>
+
+        <div id="review-page" class="page" style="display: none;">
+            <div class="review-header">
+                <div class="progress">进度：<span id="review-progress">0/0</span></div>
+                <div class="mode-switch">
+                    <button id="cn-mode-btn">中译英</button>
+                    <button id="en-mode-btn">英译中</button>
+                </div>
+            </div>
+
+            <div id="cn-to-en-content" class="review-content">
+                <div class="question-area">
+                    <div class="question-label">中文释义</div>
+                    <div class="definition" id="cn-definition"></div>
+                    <div class="pos" id="cn-pos"></div>
+                </div>
+                <div class="answer-area">
+                    <input type="text" id="user-input" placeholder="请输入英文单词">
+                    <button id="submit-answer-btn">提交</button>
+                </div>
+                <div id="answer-feedback"></div>
+                <div id="correct-answer"></div>
+            </div>
+
+            <div id="en-to-cn-content" class="review-content" style="display: none;">
+                <div class="question-area">
+                    <div class="question-label">英文单词</div>
+                    <div class="word" id="en-word"></div>
+                </div>
+                <div class="options-area">
+                    <div id="options-container"></div>
+                </div>
+                <div id="en-answer-feedback"></div>
+                <div id="en-correct-answer"></div>
+            </div>
+
+            <div class="action-buttons">
+                <button id="btn-correct">对 (0)</button>
+                <button id="btn-unfamiliar">不熟 (8)</button>
+                <button id="btn-wrong">错 (9)</button>
+            </div>
+
+            <div class="hint">提示：Enter提交答案，切换下一个</div>
+        </div>
+
+        <div id="results-page" class="page" style="display: none;">
+            <h2>背诵结果</h2>
+            <div class="results-stats">
+                <div class="result-stat">
+                    <span class="stat-label">背诵单词</span>
+                    <span class="stat-value" id="result-new-count">0</span>
+                </div>
+                <div class="result-stat">
+                    <span class="stat-label">复习单词</span>
+                    <span class="stat-value" id="result-review-count">0</span>
+                </div>
+                <div class="result-stat">
+                    <span class="stat-label">正确率</span>
+                    <span class="stat-value" id="result-accuracy">0%</span>
+                </div>
+            </div>
+
+            <div id="results-list" class="results-list"></div>
+
+            <div class="result-actions">
+                <button id="back-home-btn">返回首页</button>
+                <button id="view-wordbank-btn">查看词库</button>
+                <button id="redo-today-btn" style="background-color: #2196F3; color: white;">重新背诵今日计划</button>
+                <button id="retry-first-btn" style="background-color: #FF9800; color: white;">首次错题重测</button>
+                <button id="retry-wrong-btn" style="background-color: #f44336; color: white;">错题重开</button>
+            </div>
+        </div>
+
+        <div id="wordbank-page" class="page" style="display: none;">
+            <h2>词库</h2>
+            <div class="wordbank-header">
+                <div class="word-count">词库总数：<span id="wb-total">0</span> 个</div>
+            </div>
+            <div id="word-list" class="word-list"></div>
+        </div>
+    </main>
+
+    <script src="data/defaultWords.js"></script>
+    <script src="modules/WordBank.js"></script>
+    <script src="modules/MemoryCurve.js"></script>
+    <script src="modules/TaskManager.js"></script>
+    <script src="modules/UIManager.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
