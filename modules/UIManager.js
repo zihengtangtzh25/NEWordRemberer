@@ -315,11 +315,12 @@ class UIManager {
         });
         
         this.isAnswered = true;
+        document.getElementById('next-word-btn-en').style.display = 'block';
         
         if (result === '对') {
-            setTimeout(() => this.nextWord(), 500);
-        } else {
-            document.getElementById('next-word-btn-en').style.display = 'block';
+            setTimeout(() => {
+                this.nextWord();
+            }, 500);
         }
     }
 
