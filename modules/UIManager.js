@@ -56,19 +56,23 @@ class UIManager {
         
         const taskStatus = document.getElementById('task-status');
         const startBtn = document.getElementById('start-review-btn');
+        const exportTaskBtn = document.getElementById('export-task-words-btn');
         const createTaskSection = document.getElementById('create-task-section');
         
         if (taskCreated && !taskCompleted) {
             taskStatus.textContent = '任务已创建';
             startBtn.style.display = 'inline-block';
+            exportTaskBtn.style.display = 'inline-block';
             createTaskSection.style.display = 'none';
         } else if (taskCompleted) {
             taskStatus.textContent = '今日任务已完成';
             startBtn.style.display = 'none';
+            exportTaskBtn.style.display = 'inline-block';
             createTaskSection.style.display = 'none';
         } else {
             taskStatus.textContent = '';
             startBtn.style.display = 'none';
+            exportTaskBtn.style.display = 'none';
             createTaskSection.style.display = 'block';
         }
         
@@ -538,6 +542,47 @@ class UIManager {
         this.showPage('review');
     }
 
+    exportTaskWords() {
+        const task = this.taskManager.getTodayTask();
+        if (!task) {
+            alert('今日任务不存在，请先创建任务');
+            return;
+        }
+        
+        const today = this.wordBank.getCustomDate() || new Date().toISOString().split('T')[0];
+        const exportData = {
+            date: today,
+            newWords: task.newWords.map(wordName => {
+                const word = this.wordBank.getWord(wordName);
+                const meanings = word ? JSON.parse(word.m) : [];
+                return {
+                    word: wordName,
+                    definitions: meanings.flatMap(m => m.c).join('、'),
+                    pos: meanings.map(m => m.p).join(', ')
+                };
+            }),
+            reviewWords: task.reviewWords.map(wordName => {
+                const word = this.wordBank.getWord(wordName);
+                const meanings = word ? JSON.parse(word.m) : [];
+                return {
+                    word: wordName,
+                    definitions: meanings.flatMap(m => m.c).join('、'),
+                    pos: meanings.map(m => m.p).join(', ')
+                };
+            })
+        };
+        
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `今日单词表_${today}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
     exportResults() {
         const task = this.taskManager.getTodayTask();
         if (!task || !task.results || task.results.length === 0) {
@@ -770,6 +815,7 @@ class UIManager {
         document.getElementById('retry-first-btn').addEventListener('click', () => this.retryFirstWrong());
         document.getElementById('redo-today-btn').addEventListener('click', () => this.redoTodayTask());
         document.getElementById('export-results-btn').addEventListener('click', () => this.exportResults());
+        document.getElementById('export-task-words-btn').addEventListener('click', () => this.exportTaskWords());
         
         document.getElementById('set-date-btn').addEventListener('click', () => this.setCustomDate());
         document.getElementById('clear-records-btn').addEventListener('click', () => this.clearRecords());
