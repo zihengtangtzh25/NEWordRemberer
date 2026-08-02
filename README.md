@@ -40,7 +40,7 @@ NEWRememberer/
 ├── style.css               # 样式文件
 ├── app.js                  # 应用入口
 ├── data/
-│   └── defaultWords.js     # 默认词库（313个单词）
+│   └── defaultWords.js     # 默认词库（3146个单词）
 └── modules/
     ├── WordBank.js         # 词库管理模块
     ├── TaskManager.js      # 任务管理模块
@@ -64,7 +64,7 @@ NEWRememberer/
 
 ## 数据说明
 
-- 默认词库包含 313 个单词
+- 默认词库包含 3146 个单词
 - 数据存储在浏览器 localStorage 中
 - 清除浏览器缓存会导致数据丢失
 
