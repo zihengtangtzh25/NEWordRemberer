@@ -82,6 +82,7 @@ class UIManager {
 
     renderWordBank() {
         const words = this.wordBank.getAllWords();
+        document.getElementById('wb-total').textContent = words.length;
         const list = document.getElementById('word-list');
         list.innerHTML = '';
         
