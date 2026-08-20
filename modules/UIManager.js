@@ -15,6 +15,23 @@ class UIManager {
         this.isRetry = false;
         this.currentSearchWord = null;
         this.retryRound = 0;
+
+        // ===== 导入/导出备份相关 =====
+        this._pendingImportText = '';   // 暂存的 JSON 文本（文件或粘贴）
+        this._pendingImportParsed = null; // 解析后的对象
+        this._pendingImportValid = false;  // 是否通过格式校验
+        this._pendingForceHighVer = false; // 用户是否确认强制导入高版本
+
+        // 设置版本号徽章（以 SchemaRegistry 为准，确保 UI 与代码版本一致）
+        try {
+            if (typeof SchemaRegistry !== 'undefined' && SchemaRegistry.APP_VERSION) {
+                const badge = document.getElementById('app-version-badge');
+                if (badge) {
+                    badge.textContent = 'v' + SchemaRegistry.APP_VERSION;
+                    badge.title = '程序版本号 v' + SchemaRegistry.APP_VERSION + ' / 备份格式 v' + SchemaRegistry.CURRENT_VERSION;
+                }
+            }
+        } catch (e) { /* noop */ }
     }
 
     showPage(pageName) {
@@ -543,6 +560,330 @@ class UIManager {
         this.showPage('review');
     }
 
+    // ====================================================================
+    // 导出 / 导入 背诵备份（SchemaRegistry 版本兼容 + 双模式导入）
+    // ====================================================================
+
+    /**
+     * 触发浏览器下载一个文本/JSON Blob
+     */
+    _downloadBlob(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType || 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    /**
+     * 生成 YYYYMMDD_HHMMSS 格式的本地时间戳（用于文件名）
+     */
+    _localTimestamp() {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+    }
+
+    /**
+     * 设置 io-status 消息（首页导入/导出区域的提示）
+     */
+    _setIoStatus(html, color) {
+        const el = document.getElementById('io-status');
+        if (!el) return;
+        el.innerHTML = html || '';
+        el.style.color = color || '#555';
+    }
+
+    /**
+     * 导出背诵备份（仅词库 + customDate，不含今日任务）
+     * 仅输出 JSON 备份文件（MD 格式说明作为项目静态文件存在，不随每次导出下载）
+     */
+    exportBackup() {
+        try {
+            if (typeof SchemaRegistry === 'undefined') {
+                alert('SchemaRegistry 未加载，无法导出备份');
+                return;
+            }
+
+            const raw = this.wordBank.exportBackupData();
+            const wordCount = Array.isArray(raw.wordBank) ? raw.wordBank.length : 0;
+            const reviewedCount = Array.isArray(raw.wordBank)
+                ? raw.wordBank.filter(w => this.wordBank.getLastReviewIndex(w) > 0).length
+                : 0;
+            const stats = { wordCount, reviewedCount };
+            const exportedAt = new Date().toISOString();
+
+            const backupObj = {
+                format: SchemaRegistry.FORMAT_IDENTIFIER,
+                formatVersion: SchemaRegistry.CURRENT_VERSION,
+                appVersion: SchemaRegistry.APP_VERSION,
+                appName: "NEWordRemberer",
+                exportedAt: exportedAt,
+                exportedFromFormat: SchemaRegistry.generateEmbeddedFormatDoc(),
+                data: raw,
+                stats: stats
+            };
+
+            const jsonStr = JSON.stringify(backupObj, null, 2);
+            const fileName = `NEWordRemberer_备份_${this._localTimestamp()}.json`;
+
+            this._downloadBlob(jsonStr, fileName, 'application/json');
+
+            const customDateHint = raw.customDate
+                ? `；自定义日期：${raw.customDate}`
+                : `；自定义日期：未设置（使用真实日期）`;
+
+            this._setIoStatus(
+                `✅ 已导出备份文件到浏览器<b>默认下载目录</b>：<br>` +
+                `&nbsp;&nbsp;📄 <code>${fileName}</code>（${wordCount} 个单词，其中 ${reviewedCount} 个已开始复习${customDateHint}）<br>` +
+                `👉 查看下载：Chrome/Edge 按 <b>Ctrl+J</b>，或点浏览器右上角菜单 → 下载内容。`,
+                '#2E7D32'
+            );
+
+        } catch (err) {
+            console.error(err);
+            this._setIoStatus('❌ 导出失败：' + (err && err.message ? err.message : err), '#C62828');
+        }
+    }
+
+    // -------- 导入弹窗 --------
+
+    showImportDialog() {
+        // 每次打开先重置状态
+        this._pendingImportText = '';
+        this._pendingImportParsed = null;
+        this._pendingImportValid = false;
+        this._pendingForceHighVer = false;
+        document.getElementById('paste-json-area').value = '';
+        document.getElementById('picked-file-name').textContent = '未选择文件';
+        document.getElementById('backup-file-input').value = '';
+        this._setImportInfo('', '#555');
+        document.getElementById('import-confirm-btn').disabled = true;
+        // 默认切回 Tab1
+        this._switchImportTab('tab-file');
+        document.getElementById('import-modal').style.display = 'flex';
+    }
+
+    _closeImportDialog() {
+        document.getElementById('import-modal').style.display = 'none';
+    }
+
+    _switchImportTab(tabId) {
+        document.querySelectorAll('.import-tabs .tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tabId);
+        });
+        document.querySelectorAll('.tab-content').forEach(el => {
+            el.style.display = (el.id === tabId) ? 'block' : 'none';
+        });
+    }
+
+    _setImportInfo(html, color) {
+        const el = document.getElementById('import-info');
+        if (!el) return;
+        el.innerHTML = html || '';
+        el.style.color = color || '#555';
+        el.style.background = color === '#C62828' ? '#FFEBEE'
+            : color === '#2E7D32' ? '#E8F5E9'
+            : color === '#E65100' ? '#FFF3E0'
+            : '#f9f9f9';
+    }
+
+    _handleFilePick(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        document.getElementById('picked-file-name').textContent = `已选择：${file.name}（${(file.size / 1024).toFixed(1)} KB）`;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const text = String(evt.target.result || '');
+            this._validateAndShowInfo(text);
+        };
+        reader.onerror = () => {
+            this._setImportInfo('❌ 读取文件失败，请尝试使用「粘贴 JSON 文本」方式。', '#C62828');
+        };
+        reader.readAsText(file, 'utf-8');
+    }
+
+    /**
+     * 核心校验：解析 JSON → 检查 format → 检查版本 → 统计展示
+     */
+    _validateAndShowInfo(text) {
+        this._pendingImportText = String(text || '');
+        this._pendingImportParsed = null;
+        this._pendingImportValid = false;
+        this._pendingForceHighVer = false;
+        document.getElementById('import-confirm-btn').disabled = true;
+
+        if (!this._pendingImportText.trim()) {
+            this._setImportInfo('请选择 JSON 文件，或将 JSON 内容粘贴到文本框中。', '#555');
+            return;
+        }
+
+        // Step 1: JSON 解析
+        let obj;
+        try {
+            obj = JSON.parse(this._pendingImportText);
+        } catch (e) {
+            this._setImportInfo(
+                '❌ <b>JSON 格式损坏</b>，解析失败：<br>' +
+                '&nbsp;&nbsp;' + String(e.message || e) + '<br>' +
+                '请检查：是否完整复制了 .json 文件的全部内容？文件下载时是否中断？',
+                '#C62828'
+            );
+            return;
+        }
+
+        // Step 2: 检查 format 标识（排除「今日单词表 / 背诵结果」等旧导出格式）
+        if (!obj || !obj.format || obj.format !== SchemaRegistry.FORMAT_IDENTIFIER) {
+            this._setImportInfo(
+                '❌ <b>这不是 NEWordRemberer 完整备份文件。</b><br>' +
+                '检测到缺少 <code>format = "' + SchemaRegistry.FORMAT_IDENTIFIER + '"</code> 字段。<br>' +
+                '可能的原因：您导入的是「<b>导出今日单词表</b>」或「<b>导出今日结果</b>」生成的 JSON，<br>' +
+                '那两类是供人阅读的摘要文件，<b>不能用于恢复完整背诵记录</b>。<br>' +
+                '请使用首页系统设置区 → <b>💾 导出背诵备份</b> 功能生成的文件。',
+                '#C62828'
+            );
+            return;
+        }
+
+        const ver = String(obj.formatVersion || '0.0.0');
+        const cmp = SchemaRegistry.compareVersion(ver, SchemaRegistry.CURRENT_VERSION);
+
+        // Step 3: 版本判断
+        let verInfoHtml = '';
+        let verInfoColor = '#2E7D32';
+        let highVerConfirmNeeded = false;
+
+        const majorCur = SchemaRegistry.CURRENT_VERSION.split('.')[0];
+        const majorImp = ver.split('.')[0];
+
+        if (majorImp < majorCur || cmp < 0) {
+            // 备份格式版本 < 当前程序版本
+            verInfoHtml = `⚠️ <b>备份格式版本较低 (v${ver})</b>；当前程序支持 v${SchemaRegistry.CURRENT_VERSION}，将按当前格式字段尝试兼容导入，字段缺失的单词会被跳过。`;
+            verInfoColor = '#E65100';
+        } else if (cmp === 0) {
+            // 版本完全一致
+            verInfoHtml = `✅ <b>格式版本 v${ver}</b>，与当前程序完全兼容（主版本号相同）。`;
+            verInfoColor = '#2E7D32';
+        } else {
+            // 备份格式 > 当前程序（高版本备份导入到低版本程序）
+            highVerConfirmNeeded = true;
+            verInfoHtml = `⚠️ <b>此备份由更高版本导出 (v${ver})</b>，当前程序版本为 v${SchemaRegistry.CURRENT_VERSION}。<br>` +
+                `低版本程序<b>可能无法识别高版本的新增字段</b>，导致部分信息丢失。<br>` +
+                `若确认继续，将在下一步提示您二次确认。`;
+            verInfoColor = '#C62828';
+        }
+
+        // Step 4: 统计
+        const data = obj.data || {};
+        const wordCount = Array.isArray(data.wordBank) ? data.wordBank.length : 0;
+        const reviewedCount = Array.isArray(data.wordBank)
+            ? data.wordBank.filter(w => {
+                for (let i = 10; i >= 1; i--) if (w && w[`r${i}D`]) return true;
+                return false;
+            }).length
+            : 0;
+        const hasCustomDate = data.customDate ? `（自定义日期：${data.customDate}）` : '（自定义日期：未设置）';
+        const exportTime = obj.exportedAt ? new Date(obj.exportedAt).toLocaleString() : '未知';
+        const appVer = obj.appVersion ? obj.appVersion : '未知';
+
+        this._pendingImportParsed = obj;
+        this._pendingImportValid = true;
+        document.getElementById('import-confirm-btn').disabled = false;
+
+        this._setImportInfo(
+            `${verInfoHtml}<hr style="border:none;border-top:1px dashed #ddd;margin:10px 0;">` +
+            `📊 备份概况：<br>` +
+            `&nbsp;&nbsp;• 导出时间：${exportTime}<br>` +
+            `&nbsp;&nbsp;• 导出时程序版本：v${appVer}<br>` +
+            `&nbsp;&nbsp;• 词库单词数：<b>${wordCount}</b> 个<br>` +
+            `&nbsp;&nbsp;• 已开始复习的单词：<b>${reviewedCount}</b> 个<br>` +
+            `&nbsp;&nbsp;• customDate ${hasCustomDate}`,
+            verInfoColor
+        );
+
+        // 高版本需要用户确认（存在这个标记，在 _doImport 时会再次 confirm）
+        this._pendingHighVerNeedConfirm = highVerConfirmNeeded;
+    }
+
+    /**
+     * 最终执行导入：选策略 → 二次确认 → 调用 WordBank.importBackupData
+     */
+    _doImport() {
+        if (!this._pendingImportValid || !this._pendingImportParsed) {
+            this._setImportInfo('❌ 数据尚未通过校验，请先选择文件或粘贴正确的 JSON。', '#C62828');
+            return;
+        }
+
+        // (1) 高版本备份 → 强制二次确认
+        if (this._pendingHighVerNeedConfirm && !this._pendingForceHighVer) {
+            const ok = confirm(
+                '⚠️ 高版本备份警告\n\n' +
+                '此备份由更高版本程序导出（v' + (this._pendingImportParsed.formatVersion || '?') + '），\n' +
+                '当前程序版本 v' + SchemaRegistry.APP_VERSION + ' 可能无法识别新增字段。\n\n' +
+                '继续导入可能丢失高版本的部分信息。\n\n' +
+                '是否确认继续导入？'
+            );
+            if (!ok) return;
+            this._pendingForceHighVer = true;
+        }
+
+        // (2) 策略选择
+        const strategyMsg =
+            '请选择导入策略：\n\n' +
+            '【确定】= 覆盖模式 (overwrite)\n' +
+            '       清空当前词库，写入备份中的词库 + 自定义日期。\n' +
+            '       适用于：换设备、恢复完整备份。\n\n' +
+            '【取消】= 合并模式 (merge)\n' +
+            '       同单词保留「复习轮次更高」的记录，不同单词直接追加。\n' +
+            '       适用于：多设备进度合并。';
+        const isOverwrite = confirm(strategyMsg);
+        const mergeMode = isOverwrite ? 'overwrite' : 'merge';
+
+        // (3) 覆盖模式：再次警告 + 备份提醒
+        if (isOverwrite) {
+            const really = confirm(
+                '⚠️ 最后确认：覆盖当前数据？\n\n' +
+                '覆盖将：\n' +
+                '  ① 清空当前所有背诵记录（词库 + 复习进度）\n' +
+                '  ② 写入备份中的全部单词及其复习记录\n' +
+                '  ③ customDate 也会被备份中的值覆盖\n\n' +
+                '❗此操作不可恢复！\n\n' +
+                '👉 强烈建议先点击【取消】→ 先点【💾 导出背诵备份】保存当前数据，再导入。\n\n' +
+                '确认仍然覆盖？'
+            );
+            if (!really) return;
+        }
+
+        // (4) 执行导入
+        try {
+            const data = this._pendingImportParsed.data || {};
+            const r = this.wordBank.importBackupData(data, mergeMode);
+            const modeText = mergeMode === 'overwrite' ? '覆盖模式' : '合并模式';
+
+            let summary = `✅ 导入完成（${modeText}）：<br>`;
+            summary += `&nbsp;&nbsp;• 新增单词：<b>${r.importedCount}</b> 个<br>`;
+            if (mergeMode === 'merge') {
+                summary += `&nbsp;&nbsp;• 合并时因复习进度更高被替换：<b>${r.updatedCount}</b> 个<br>`;
+            }
+            if (r.invalidCount > 0) {
+                summary += `&nbsp;&nbsp;• 字段不完整被跳过：<b style="color:#C62828;">${r.invalidCount}</b> 个<br>`;
+            }
+            summary += `&nbsp;&nbsp;• 当前词库总数：<b>${r.totalAfter}</b> 个`;
+
+            this._closeImportDialog();
+            this._setIoStatus(summary, '#2E7D32');
+            this.renderHome(); // 刷新首页统计
+
+        } catch (err) {
+            console.error(err);
+            this._setImportInfo('❌ 导入失败：' + (err && err.message ? err.message : err), '#C62828');
+        }
+    }
+
     exportTaskWords() {
         const task = this.taskManager.getTodayTask();
         if (!task) {
@@ -820,7 +1161,26 @@ class UIManager {
         
         document.getElementById('set-date-btn').addEventListener('click', () => this.setCustomDate());
         document.getElementById('clear-records-btn').addEventListener('click', () => this.clearRecords());
-        
+
+        // ===== 导入/导出背诵备份 =====
+        document.getElementById('export-backup-btn').addEventListener('click', () => this.exportBackup());
+        document.getElementById('import-backup-btn').addEventListener('click', () => this.showImportDialog());
+        document.getElementById('import-cancel-btn').addEventListener('click', () => this._closeImportDialog());
+        document.getElementById('import-confirm-btn').addEventListener('click', () => this._doImport());
+        document.getElementById('pick-file-btn').addEventListener('click', () => document.getElementById('backup-file-input').click());
+        document.getElementById('backup-file-input').addEventListener('change', (e) => this._handleFilePick(e));
+        document.getElementById('paste-json-area').addEventListener('input', (e) => this._validateAndShowInfo(e.target.value));
+        // Tab 切换
+        document.querySelectorAll('.import-tabs .tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => this._switchImportTab(btn.dataset.tab));
+        });
+        // 点击弹窗外部关闭
+        document.getElementById('import-modal').addEventListener('click', (e) => {
+            if (e.target && e.target.id === 'import-modal') {
+                this._closeImportDialog();
+            }
+        });
+
         document.addEventListener('keydown', (e) => {
             if (this.currentPage !== 'review') return;
             

@@ -8,7 +8,7 @@
 </head>
 <body>
     <header>
-        <h1>NEWordRemberer</h1>
+        <h1>NEWordRemberer <span class="app-version" id="app-version-badge" title="程序版本号">v1.0.0</span></h1>
         <nav>
             <button id="home-nav">首页</button>
             <button id="wordbank-nav">词库</button>
@@ -90,9 +90,42 @@
                     <div style="margin-top: 10px;">
                         <button id="clear-records-btn" style="background-color: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">清除所有背诵记录</button>
                     </div>
+                    <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button id="export-backup-btn" class="btn-green">💾 导出背诵备份</button>
+                        <button id="import-backup-btn" class="btn-blue">📥 导入背诵记录</button>
+                    </div>
+                    <div id="io-status" style="margin-top: 8px; font-size: 13px; line-height: 1.6;"></div>
                     <div id="settings-status" style="margin-top: 10px; color: #4CAF50;"></div>
                 </div>
             </section>
+
+            <!-- 导入弹窗 -->
+            <div id="import-modal" class="modal" style="display:none;">
+                <div class="modal-content">
+                    <h3>导入背诵记录</h3>
+                    <div class="import-tabs">
+                        <button class="tab-btn active" data-tab="tab-file">📁 选择 JSON 文件</button>
+                        <button class="tab-btn" data-tab="tab-paste">📋 粘贴 JSON 文本</button>
+                    </div>
+                    <div id="tab-file" class="tab-content active">
+                        <button id="pick-file-btn" class="btn-blue">选择备份文件 (.json)</button>
+                        <p id="picked-file-name" style="font-size:12px;color:#666;margin-top:8px;">未选择文件</p>
+                    </div>
+                    <div id="tab-paste" class="tab-content" style="display:none;">
+                        <p style="font-size:12px;color:#666;margin:0 0 6px 0;">用文本编辑器打开 <code>.json</code> 备份文件 → 全选复制 → 粘贴到下方：</p>
+                        <textarea id="paste-json-area" rows="10" style="width:100%;font-family:Consolas,monospace;font-size:12px;padding:8px;box-sizing:border-box;border:1px solid #ccc;border-radius:4px;resize:vertical;"
+                            placeholder="示例：{&#10;  &quot;format&quot;: &quot;NEWordRemberer-Backup&quot;,&#10;  &quot;formatVersion&quot;: &quot;1.0.0&quot;,&#10;  &quot;data&quot;: { ... }&#10;}"></textarea>
+                    </div>
+                    <div id="import-info" style="font-size:13px;margin:10px 0;padding:10px;border-radius:4px;background:#f9f9f9;min-height:20px;"></div>
+                    <div class="modal-actions">
+                        <button id="import-cancel-btn" class="btn-gray">取消</button>
+                        <button id="import-confirm-btn" class="btn-blue" disabled>解析并导入</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 隐藏的文件选择 -->
+            <input type="file" id="backup-file-input" accept=".json" style="display:none;">
         </div>
 
         <div id="review-page" class="page" style="display: none;">
@@ -180,6 +213,7 @@
     </main>
 
     <script src="data/defaultWords.js"></script>
+    <script src="modules/SchemaRegistry.js"></script>
     <script src="modules/WordBank.js"></script>
     <script src="modules/MemoryCurve.js"></script>
     <script src="modules/TaskManager.js"></script>
