@@ -831,11 +831,20 @@ class UIManager {
                 } else if (this.reviewMode === 'cn_to_en') {
                     this.checkAnswer();
                 }
+            } else if (this.reviewMode === 'en_to_cn' && !this.isAnswered && e.key >= '1' && e.key <= '6') {
+                e.preventDefault();
+                const index = parseInt(e.key) - 1;
+                if (index < this.options.length) {
+                    this.selectOption(index);
+                }
             } else if (e.key === '0') {
+                e.preventDefault();
                 this.setResult('对');
             } else if (e.key === '8') {
+                e.preventDefault();
                 this.setResult('不熟');
             } else if (e.key === '9') {
+                e.preventDefault();
                 this.setResult('错');
             }
         });
