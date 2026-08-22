@@ -1,8 +1,11 @@
 class UIManager {
-    constructor(wordBank, memoryCurve, taskManager) {
+    constructor(wordBank, memoryCurve, taskManager, statsCalendar) {
         this.wordBank = wordBank;
         this.memoryCurve = memoryCurve;
         this.taskManager = taskManager;
+        // ===== [v1.0.2 背诵日历] 注入 StatsCalendar（可选注入，向后兼容老调用方）=====
+        this.statsCalendar = statsCalendar || null;
+
         this.currentPage = 'home';
         this.reviewMode = 'cn_to_en';
         this.reviewIndex = 0;
@@ -25,6 +28,24 @@ class UIManager {
         });
         this.retryState = { ...this.DEFAULT_RETRY_STATE };
 
+        // ===== [v1.0.2 背诵日历 + 跨模块铁则 6] 日历状态聚合：一次性 reset =====
+        (() => {
+            const now = new Date();
+            // 默认打开月 = 真实今天（customDate 不影响"真实世界日历"默认锚点，只影响写入落到哪一天）
+            const y = now.getFullYear();
+            const m = now.getMonth() + 1;
+            const d = now.getDate();
+            const pad = (n) => (n < 10 ? '0' : '') + n;
+            const todayStr = `${y}-${pad(m)}-${pad(d)}`;
+            this.DEFAULT_CAL_STATE = Object.freeze({
+                curYear: y,
+                curMonth: m,          // 1-12
+                selDay: todayStr,     // YYYY-MM-DD，真实今天（点击月格 / 今天按钮更新）
+                _justDidRedo: false   // redoTodayTask → finishReview 时标记 redoAll 计数
+            });
+            this.calState = { ...this.DEFAULT_CAL_STATE };
+        })();
+
         // ===== 导入/导出备份相关 =====
         this._pendingImportText = '';   // 暂存的 JSON 文本（文件或粘贴）
         this._pendingImportParsed = null; // 解析后的对象
@@ -45,9 +66,10 @@ class UIManager {
     }
 
     showPage(pageName) {
-        const pages = ['home', 'review', 'results', 'wordbank'];
+        const pages = ['home', 'review', 'results', 'wordbank', 'calendar'];
         pages.forEach(page => {
-            document.getElementById(page + '-page').style.display = page === pageName ? 'block' : 'none';
+            const el = document.getElementById(page + '-page');
+            if (el) el.style.display = page === pageName ? 'block' : 'none';
         });
         this.currentPage = pageName;
         
@@ -59,6 +81,8 @@ class UIManager {
             this.startReview();
         } else if (pageName === 'results') {
             this.renderResults();
+        } else if (pageName === 'calendar') {
+            this.renderCalendarPage();
         }
     }
 
@@ -71,7 +95,9 @@ class UIManager {
         const dateInput = document.getElementById('custom-date');
         const currentYear = new Date().getFullYear();
         const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
+        // [v1.0.2 时区修复] 本地时区 YMD，不要 toISOString()（UTC）
+        const pad2 = n => (n < 10 ? '0' : '') + n;
+        const todayStr = today.getFullYear() + '-' + pad2(today.getMonth() + 1) + '-' + pad2(today.getDate());
         const customDate = this.wordBank.getCustomDate();
         
         dateInput.value = customDate || todayStr;
@@ -366,21 +392,26 @@ class UIManager {
     }
 
     setResult(result) {
-        // ===== [Bug 10 v1.0.1] 改判操作：先刷新当前 UI（反馈区+按钮高亮），不再直接跳题（Enter/下一步才跳） =====
         if (!this.isAnswered) {
-            // 用户第一次按 0/8/9 没先点提交/选选项的情况：先把结果进 reviewResults
+            // ===== [Bug1 v1.0.2] 首次判题：push 结果 + 显示 UI，然后自动跳下一题（与 checkAnswer/selectOption 口径一致）=====
+            // 用户第一次按 0/8/9（没先点提交/选选项）的情况，等同于"直接口头判题"
             this.reviewResults.push({ word: this.currentWord.w, result: result, type: this.currentWord.type });
             this.isAnswered = true;
-            document.getElementById('user-input').disabled = true;
-            document.getElementById('next-word-btn').style.display = 'block';
-            document.getElementById('next-word-btn-en').style.display = 'block';
+            const input = document.getElementById('user-input');
+            if (input) input.disabled = true;
+            const nextBtnCN = document.getElementById('next-word-btn');
+            if (nextBtnCN) nextBtnCN.style.display = 'block';
+            const nextBtnEN = document.getElementById('next-word-btn-en');
+            if (nextBtnEN) nextBtnEN.style.display = 'block';
+            this._refreshCurrentResultUI(result);
+            // 判题完成后 500ms 自动跳下一题（中译英 / 英译中都生效，与答对自动跳题一致）
+            setTimeout(() => { this.nextWord(); }, 500);
         } else {
-            // 正常改判：找到当前词最后一条记录覆盖 result
+            // ===== [Bug 10 v1.0.1] 改判操作：只刷新 UI + 覆盖最后一条记录结果，不自动跳题（用户手动 Enter/下一步才跳）=====
             const last = [...this.reviewResults].reverse().find(r => r.word === this.currentWord.w);
             if (last) last.result = result;
+            this._refreshCurrentResultUI(result);
         }
-        // 刷新反馈区 + 按钮配色（数据改了，视图立即同步）
-        this._refreshCurrentResultUI(result);
     }
 
     nextWord() {
@@ -404,6 +435,14 @@ class UIManager {
             } else if (mode === 'all') {
                 this.retryState.allResult = { results: freshCopy, endTime: Date.now() };
             }
+            // ===== [v1.0.2 背诵日历] 三模式错题重测完成 → retryCounts[mode] += 1（当日无主记录则静默丢弃，符合 §2.2 铁则）=====
+            try {
+                if (this.statsCalendar && mode) {
+                    const t = this.wordBank && this.wordBank.getTodayDate ? this.wordBank.getTodayDate() : null;
+                    if (t) this.statsCalendar.recordRetryCompletion(t, mode);
+                }
+            } catch (e) { console.warn('[日历] 三模式重试计数失败：', e); }
+
             // 退出 retry 状态标记（歧义 3 紧急写库判断依据）
             this.retryState.isRetry = false;
             this.retryState.currentMode = null;
@@ -415,6 +454,23 @@ class UIManager {
         // ===== 首次背诵 / 重做今日计划：完整写库（completeTask 内部会保证每日一轮唯一性 + 最后写 todayTask）=====
         this.taskManager.completeTask(this.reviewResults);
         this.isRetry = false;
+
+        // ===== [v1.0.2 背诵日历] 主会话写入：recordMainSession + 判断 redoAll 计数 =====
+        try {
+            if (this.statsCalendar) {
+                const task = this.taskManager.getTodayTask();
+                if (task) {
+                    const today = task.date;
+                    const isRedo = !!(this.calState && this.calState._justDidRedo);
+                    const existed = !!this.statsCalendar.getDay(today);
+                    this.statsCalendar.recordMainSession(today, task, this.reviewResults || []);
+                    // redoAll 计数规则：① redoTodayTask 标记 ② 原本当日已有记录（用户二次/多次正常完整背完也算一次全部重开推进）
+                    if (isRedo || existed) this.statsCalendar.recordRetryCompletion(today, 'redoAll');
+                    if (this.calState) this.calState._justDidRedo = false;
+                }
+            }
+        } catch (e) { console.warn('[日历] 主会话写入失败（不影响已保存的词库结果）：', e); }
+
         this.showPage('results');
     }
 
@@ -608,6 +664,9 @@ class UIManager {
         if (!task) { alert('今日任务不存在，请先创建任务'); return; }
         // [歧义 2 / Bug 11] Step 1：todayTask.resultsOnly 清空 + completed=false
         this.taskManager.clearTodayTask('resultsOnly');
+
+        // ===== [v1.0.2 背诵日历] 标记本次 completeTask 属于「全部重开」—— 用于 finishReview 记录 retryCounts.redoAll =====
+        if (this.calState) this.calState._justDidRedo = true;
 
         const allWords = [];
         task.newWords.forEach(wordName => {
@@ -962,7 +1021,7 @@ class UIManager {
             return;
         }
         
-        const today = this.wordBank.getCustomDate() || new Date().toISOString().split('T')[0];
+        const today = this.wordBank.getTodayDate();
         const exportData = {
             date: today,
             newWords: task.newWords.map(wordName => {
@@ -1003,7 +1062,7 @@ class UIManager {
             return;
         }
         
-        const today = this.wordBank.getCustomDate() || new Date().toISOString().split('T')[0];
+        const today = this.wordBank.getTodayDate();
         const exportData = {
             date: today,
             totalWords: task.results.length,
@@ -1145,14 +1204,59 @@ class UIManager {
     setCustomDate() {
         const dateInput = document.getElementById('custom-date');
         const dateStr = dateInput.value;
-        
+
         if (!dateStr) {
             alert('请选择日期');
             return;
         }
-        
-        this.wordBank.setCustomDate(dateStr);
-        this.showSettingsStatus('日期已设置为：' + dateStr);
+
+        // ===== [Bug2 v1.0.2] 切换日期前：
+        //   1) 若今日任务进行中（背了一半就切日期）→ 先 completeTask 保存已答过的到旧日期
+        //   2) 删除旧 todayTask（因为 todayTask.date 是旧日期，跨日期应该重建新计划） =====
+        const oldTask = this.taskManager.getTodayTask();
+        if (oldTask && !oldTask.completed) {
+            try {
+                // 今日非错题重测 + reviewResults 有内容 → 紧急保存到旧日期
+                const isRetry = (this.retryState && this.retryState.isRetry) || this.isRetry;
+                const haveResults = Array.isArray(this.reviewResults) && this.reviewResults.length > 0;
+                if (!isRetry && haveResults) {
+                    this.taskManager.completeTask(this.reviewResults);
+                    console.log('[setCustomDate] 切换日期前已保存 ' + this.reviewResults.length + ' 题成绩到旧日期');
+                }
+            } catch (e) {
+                console.warn('[setCustomDate] 保存旧日期成绩失败：', e);
+            }
+        }
+        // 无论旧任务是已完成 / 进行中，全部删除旧 todayTask（跨日期不能继承）
+        this.taskManager.clearTodayTask('full');
+        // 清理背诵进行中的内存状态（切日期=结束当前背诵）
+        this.reviewResults = [];
+        this.retryResults = [];
+        this.retryState = { ...this.DEFAULT_RETRY_STATE };
+        this.isRetry = false;
+        this.reviewIndex = 0;
+        this.currentWord = null;
+        this.isAnswered = false;
+
+        // ===== [Bug2 v1.0.2] 执行写入，并区分成功/失败
+        //   - 失败时不要渲染 renderHome（否则 renderHome 里会把 customDate 的老值回写到 <input>，造成"自动跳回"）=====
+        const ok = this.wordBank.setCustomDate(dateStr);
+        if (!ok) {
+            // 设置失败：保持用户在 <input> 里输入的值，显示红色错误提示
+            const st = document.getElementById('settings-status');
+            if (st) {
+                st.textContent = '❌ 日期设置失败：格式应为 YYYY-MM-DD，且必须是真实存在的日期（如 2026-02-30 无效）';
+                st.style.color = '#f44336';
+                setTimeout(() => {
+                    st.textContent = '';
+                    st.style.color = '';
+                }, 5000);
+            }
+            return;   // 不调用 renderHome，不让老 customDate 把用户输入的新值覆盖掉
+        }
+
+        this.showSettingsStatus('✅ 日期已切换为：' + dateStr + '；旧日期进度已保存，旧计划已清除，请在下方重新创建新日期计划');
+        // renderHome 内部会用最新 customDate 刷新 dateInput.value，同步到正确的新日期
         this.renderHome();
     }
 
@@ -1168,9 +1272,13 @@ class UIManager {
 
     showSettingsStatus(message) {
         const status = document.getElementById('settings-status');
+        if (!status) return;
+        // [v1.0.2 Bug2] 统一回到默认绿色，防止前一次报错用了红色后残留到下一条成功消息
+        status.style.color = '#4CAF50';
         status.textContent = message;
         setTimeout(() => {
             status.textContent = '';
+            status.style.color = '';
         }, 3000);
     }
 
@@ -1221,6 +1329,26 @@ class UIManager {
                 alert('请先完成今日背诵任务');
             }
         });
+        // ===== [v1.0.2 背诵日历] 日历导航 + 月切换按钮 + 今天按钮 =====
+        const calNav = document.getElementById('calendar-nav');
+        if (calNav) calNav.addEventListener('click', () => this.showPage('calendar'));
+        const prevBtn = document.getElementById('cal-prev-month');
+        if (prevBtn) prevBtn.addEventListener('click', () => this._calShiftMonth(-1));
+        const nextBtn = document.getElementById('cal-next-month');
+        if (nextBtn) nextBtn.addEventListener('click', () => this._calShiftMonth(1));
+        const todayBtn = document.getElementById('cal-today-btn');
+        if (todayBtn) todayBtn.addEventListener('click', () => {
+            const now = new Date();
+            const pad = n => (n < 10 ? '0' : '') + n;
+            this.calState.curYear = now.getFullYear();
+            this.calState.curMonth = now.getMonth() + 1;
+            this.calState.selDay = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+            const title = document.getElementById('cal-month-title');
+            if (title) title.textContent = `📅 ${this.calState.curYear} 年 ${this.calState.curMonth} 月`;
+            this.renderCalendarMonth(this.calState.curYear, this.calState.curMonth);
+            this.renderDayDetail(this.calState.selDay);
+            this.renderCalendarMonthSummary(this.calState.curYear, this.calState.curMonth);
+        });
         
         document.getElementById('back-home-btn').addEventListener('click', () => this.showPage('home'));
         document.getElementById('view-wordbank-btn').addEventListener('click', () => this.showPage('wordbank'));
@@ -1255,18 +1383,25 @@ class UIManager {
         document.addEventListener('keydown', (e) => {
             if (this.currentPage !== 'review') return;
 
-            // ===== [Bug 15 v1.0.1] 输入框/可编辑控件聚焦时，快捷键不生效（防输入时按 0/8/9/Enter 被判题跳题）=====
             const active = document.activeElement;
-            if (active) {
+            // ===== [Bug1 v1.0.2] 背诵页快捷键规则重新梳理：
+            //  0/8/9 判题键：在背诵页任何 DOM 节点（包括 input 聚焦）都要生效 —— 这是用户"口头判题"的主交互
+            //  Enter 提交：在 input 聚焦时也生效（提交答案 / 已答题下一题）
+            //  1~6 英译中选项：仅非 input 聚焦时生效，避免 input 里输入数字被判题
+            //  非背诵页的 input（自定义日期、搜索框、导入粘贴）已在上面 L1328 `this.currentPage !== 'review'` 挡掉了 =====
+            const inReviewEditable = (() => {
+                if (!active) return false;
                 const tag = (active.tagName || '').toLowerCase();
-                const isEditable = tag === 'input' || tag === 'textarea' || tag === 'select' || active.isContentEditable;
-                if (isEditable) {
-                    // 只保留一个例外：中译英模式 + 未答题 + Enter = 提交答案（这是用户输入完答案后的自然动作）
-                    const allowEnterSubmit = (e.key === 'Enter' && this.reviewMode === 'cn_to_en' && !this.isAnswered && active.id === 'user-input');
-                    if (!allowEnterSubmit) {
-                        return;   // 其他情况（输入释义/自定义日期时按数字、中译英聚焦时按 0/8/9、英译中 input 聚焦都不触发）
-                    }
-                }
+                if (tag !== 'input' && tag !== 'textarea' && !active.isContentEditable) return false;
+                // 只把"背诵页内"的可编辑元素当这里的判定对象（目前只有 user-input 一个）
+                if (tag === 'input' && active.id === 'user-input') return true;
+                if (active.isContentEditable) return true;
+                return false;
+            })();
+
+            // 背诵页 input 聚焦时，只拦截 1~6（英译中选选项号），放行 Enter/0/8/9
+            if (inReviewEditable && this.reviewMode === 'en_to_cn' && !this.isAnswered && e.key >= '1' && e.key <= '6') {
+                return;  // input 里按数字 1-6 不触英译中选选项，防打字误判
             }
 
             if (e.key === 'Enter') {
@@ -1329,6 +1464,20 @@ class UIManager {
             try {
                 this.taskManager.completeTask(this.reviewResults);
                 console.log('[紧急写库] success：首次背诵进行中，已写入 ' + this.reviewResults.length + ' 题成绩到词库');
+
+                // ===== [v1.0.2 背诵日历] 紧急写库成功 → 同步写入当日日历主数据（与 finishReview 主分支一致）=====
+                try {
+                    if (this.statsCalendar) {
+                        const task = this.taskManager.getTodayTask();
+                        if (task) {
+                            const today = task.date;
+                            const existed = !!this.statsCalendar.getDay(today);
+                            this.statsCalendar.recordMainSession(today, task, this.reviewResults || []);
+                            if (existed) this.statsCalendar.recordRetryCompletion(today, 'redoAll');
+                        }
+                    }
+                } catch (ce) { console.warn('[紧急写库→日历] 写入失败：', ce); }
+
             } catch (e) {
                 console.error('[紧急写库] 词库写入失败：', e);
             }
@@ -1381,5 +1530,319 @@ class UIManager {
             if (!last) return;
             // 英译中改判后：根据结果决定是否要把某个选项标橙/红（目前只负责反馈区颜色；按钮逻辑复杂，用户主要看反馈区即可）
         }
+    }
+
+    // ====================================================================
+    // [v1.0.2 背诵日历] 日历渲染 + 导航切换
+    // ====================================================================
+
+    renderCalendarPage() {
+        // 懒重建：如果 todayTask.completed=true 但 statsCalendar 当日没数据（比如紧急写库 crash 了但 completeTask 存了，
+        // 或者 beforeunload 中 statsCalendar 写失败），这里补一次
+        try { this._calLazyBackfill(); } catch (e) { console.warn('[日历懒重建] 失败：', e); }
+
+        const y = this.calState.curYear;
+        const m = this.calState.curMonth;
+        // 月标题
+        const title = document.getElementById('cal-month-title');
+        if (title) title.textContent = `📅 ${y} 年 ${m} 月`;
+
+        this.renderCalendarMonth(y, m);
+        this.renderDayDetail(this.calState.selDay);
+        this.renderCalendarMonthSummary(y, m);
+    }
+
+    /**
+     * 懒重建：紧急写库 + 页面打开时兜底。
+     * 原则：只在"任务已完成（todayTask.completed=true）+ 当日 stats 为空"时才从 todayTask 回填一次，
+     *       避免覆盖用户后来重做今日计划写入的 stats（因为 stats 永远比 todayTask.results 新：redo 完成后 both 都更新）。
+     */
+    _calLazyBackfill() {
+        if (!this.statsCalendar) return;
+        const task = this.taskManager.getTodayTask();
+        if (!task || !task.completed || !Array.isArray(task.results) || task.results.length === 0) return;
+        const day = this.statsCalendar.getDay(task.date);
+        if (day) return; // 已有，不覆盖
+        // 当日无记录 → 从 todayTask.results 重建
+        this.statsCalendar.recordMainSession(task.date, task, task.results);
+    }
+
+    /**
+     * 月切换：delta = ±1
+     */
+    _calShiftMonth(delta) {
+        let y = this.calState.curYear;
+        let m = this.calState.curMonth + delta;
+        if (m < 1) { m = 12; y--; }
+        else if (m > 12) { m = 1; y++; }
+        this.calState.curYear = y;
+        this.calState.curMonth = m;
+        const title = document.getElementById('cal-month-title');
+        if (title) title.textContent = `📅 ${y} 年 ${m} 月`;
+        this.renderCalendarMonth(y, m);
+        this.renderCalendarMonthSummary(y, m);
+    }
+
+    /**
+     * 月视图渲染：生成 42 个日格（6 周 × 7 列）
+     * - 每格结构：右上角日期号 + 中央色点 + 底部 answeredCount（≥768px 显示）
+     * - 今日加圈；点击选中 → 刷新日详情面板
+     */
+    renderCalendarMonth(year, month /* 1-12 */) {
+        const grid = document.getElementById('cal-grid');
+        if (!grid) return;
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+        // 真实今天的 dateStr（用本地时区拼，不用 UTC，与用户手机/日历一致）
+        const now = new Date();
+        const pad = n => (n < 10 ? '0' : '') + n;
+        const realToday = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+        // 该月 1 号在周几（0=周日 ... 6=周六），用本地时区的 weekday，不 UTC
+        const firstWeekday = new Date(year, month - 1, 1).getDay();
+        // 该月最后一天
+        const lastDay = new Date(year, month, 0).getDate();
+        // 上月最后一天（填充前置空格用）
+        const prevLastDay = new Date(year, month - 1, 0).getDate();
+
+        // 生成 42 格数组：[{ y, m, d, dateStr, inMonth: bool }]
+        const cells = [];
+        // 前置：上月末尾
+        for (let i = firstWeekday - 1; i >= 0; i--) {
+            const d = prevLastDay - i;
+            const py = month === 1 ? year - 1 : year;
+            const pm = month === 1 ? 12 : month - 1;
+            cells.push({ y: py, m: pm, d, inMonth: false, dateStr: `${py}-${pad(pm)}-${pad(d)}` });
+        }
+        // 当前月
+        for (let d = 1; d <= lastDay; d++) {
+            cells.push({ y: year, m: month, d, inMonth: true, dateStr: `${year}-${pad(month)}-${pad(d)}` });
+        }
+        // 后置：下月开头（补到 42 格）
+        let nd = 1;
+        while (cells.length < 42) {
+            const ny = month === 12 ? year + 1 : year;
+            const nm = month === 12 ? 1 : month + 1;
+            cells.push({ y: ny, m: nm, d: nd, inMonth: false, dateStr: `${ny}-${pad(nm)}-${pad(nd)}` });
+            nd++;
+        }
+
+        const sc = this.statsCalendar;
+        cells.forEach(cell => {
+            const div = document.createElement('div');
+            div.className = 'cal-cell';
+            if (!cell.inMonth) div.classList.add('out-of-month');
+            if (cell.dateStr === realToday) div.classList.add('today');
+            if (cell.dateStr === this.calState.selDay) div.classList.add('selected');
+
+            // 日期数字（右上）
+            const dn = document.createElement('div');
+            dn.className = 'cal-date-num';
+            dn.textContent = String(cell.d);
+            div.appendChild(dn);
+
+            // 色点（中央）+ 底部数字
+            let dayData = null;
+            try { dayData = sc ? sc.getDay(cell.dateStr) : null; } catch (e) { dayData = null; }
+            if (dayData && dayData.answeredCount > 0) {
+                div.classList.add('has-data');
+                // 色点（day.accuracy 内部是 0~1 小数，颜色档和 changelog 描述一致）
+                const dot = document.createElement('div');
+                dot.className = 'cal-dot';
+                dot.style.backgroundColor = this._calAccColor(dayData.accuracy);
+                div.appendChild(dot);
+
+                // 底部小字：answeredCount
+                const btm = document.createElement('div');
+                btm.className = 'cal-cell-bottom';
+                btm.textContent = String(dayData.answeredCount);
+                div.appendChild(btm);
+            } else {
+                // 空格占位，保证每格高度一致
+                const place = document.createElement('div');
+                place.className = 'cal-dot';
+                place.style.visibility = 'hidden';
+                div.appendChild(place);
+                const btm = document.createElement('div');
+                btm.className = 'cal-cell-bottom';
+                btm.innerHTML = '&nbsp;';
+                div.appendChild(btm);
+            }
+
+            // 点击
+            div.addEventListener('click', () => {
+                // 若点击了跨月数字 → 跳到那个月
+                if (!cell.inMonth) {
+                    this.calState.curYear = cell.y;
+                    this.calState.curMonth = cell.m;
+                    // 重新渲染月表和月标题
+                    const title = document.getElementById('cal-month-title');
+                    if (title) title.textContent = `📅 ${cell.y} 年 ${cell.m} 月`;
+                    this.renderCalendarMonth(cell.y, cell.m);
+                    this.renderCalendarMonthSummary(cell.y, cell.m);
+                }
+                this.calState.selDay = cell.dateStr;
+                // 更新 selected 样式：清所有 .selected + 给本次加
+                const allCells = grid.querySelectorAll('.cal-cell');
+                allCells.forEach(c => c.classList.remove('selected'));
+                div.classList.add('selected');
+                this.renderDayDetail(cell.dateStr);
+            });
+
+            grid.appendChild(div);
+        });
+    }
+
+    /**
+     * 正确率颜色：输入为 0~1 小数（内部 storage 语义），这里 ×100 再按 6 档分色
+     */
+    _calAccColor(acc01) {
+        const pct = Number(acc01) || 0;
+        if (pct <= 0) return '#e0e0e0';      // 0 题 → 灰
+        const p = pct * 100;
+        if (p < 40) return '#9c27b0';        // < 40% 紫
+        if (p < 60) return '#f44336';        // 40-60% 红
+        if (p < 80) return '#ff9800';        // 60-80% 橙
+        if (p < 95) return '#4CAF50';        // 80-95% 绿
+        return '#2E7D32';                     // ≥95% 深绿
+    }
+
+    _fmtLocal(tsMs) {
+        if (!tsMs) return '—';
+        const d = new Date(tsMs);
+        const pad = n => (n < 10 ? '0' : '') + n;
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    _weekdayName(weekday /* 0..6 */) {
+        return ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][weekday] || '';
+    }
+
+    renderDayDetail(dateStr /* YYYY-MM-DD */) {
+        const title = document.getElementById('cal-day-title');
+        const body = document.getElementById('cal-day-body');
+        if (!title || !body) return;
+
+        const y = Number(dateStr.slice(0,4));
+        const m = Number(dateStr.slice(5,7));
+        const d = Number(dateStr.slice(8,10));
+        const wd = new Date(y, m-1, d).getDay();
+        title.textContent = `📆 ${y} 年 ${m} 月 ${d} 日  ${this._weekdayName(wd)}`;
+
+        while (body.firstChild) body.removeChild(body.firstChild);
+
+        const sc = this.statsCalendar;
+        let day = null;
+        try { day = sc ? sc.getDay(dateStr) : null; } catch (e) { day = null; }
+
+        if (!day) {
+            // 空态文案
+            const p = document.createElement('p');
+            p.className = 'cal-day-empty';
+            p.textContent = '当日未完成一次完整的首次背诵或重做今日计划 📝（错题重测为练习模式，不计入日历主记录）';
+            body.appendChild(p);
+            return;
+        }
+
+        // ===== ① 当日统计块 =====
+        const h4a = document.createElement('h4');
+        h4a.style.margin = '8px 0 12px 0';
+        h4a.textContent = '📊 当日统计';
+        body.appendChild(h4a);
+
+        const line1 = document.createElement('div');
+        line1.className = 'cal-stat-line';
+        line1.appendChild(this._statChip('新词', day.newCount));
+        line1.appendChild(this._statChip('复习词', day.reviewCount));
+        line1.appendChild(this._statChip('共计', day.totalCount));
+        body.appendChild(line1);
+
+        const line2 = document.createElement('div');
+        line2.className = 'cal-stat-line';
+        line2.appendChild(this._statChip('✅ 对', day.correctCount, '#4CAF50'));
+        line2.appendChild(this._statChip('🔶 不熟', day.unfamiliarCount, '#ff9800'));
+        line2.appendChild(this._statChip('❌ 错', day.wrongCount, '#f44336'));
+        // 额外显示各自百分比（按 answeredCount）
+        const answered = Math.max(1, day.answeredCount);
+        const accPctDisplay = (Number(day.accuracy) || 0) * 100;
+        line2.appendChild(this._statChip(
+            '正确率',
+            `${accPctDisplay.toFixed(1)}%`,
+            this._calAccColor(day.accuracy)
+        ));
+        body.appendChild(line2);
+
+        // 正确率进度条（0~100%，内部 accuracy 0~1）
+        const accWrap = document.createElement('div');
+        accWrap.className = 'acc-bar';
+        const accFill = document.createElement('div');
+        accFill.className = 'acc-bar-fill';
+        accFill.style.width = `${Math.max(0, Math.min(100, accPctDisplay))}%`;
+        accFill.style.backgroundColor = this._calAccColor(day.accuracy);
+        accWrap.appendChild(accFill);
+        body.appendChild(accWrap);
+
+        // ===== ② 重开记录块 =====
+        const h4b = document.createElement('h4');
+        h4b.style.margin = '20px 0 12px 0';
+        h4b.textContent = '🔁 重开记录';
+        body.appendChild(h4b);
+
+        const retryLine = document.createElement('div');
+        retryLine.className = 'cal-stat-line';
+        const rc = day.retryCounts || {};
+        retryLine.appendChild(this._statChip('重新背诵今日计划（全部重开）', rc.redoAll || 0, '#2196F3'));
+        retryLine.appendChild(this._statChip('错题·链式重测', rc.chain || 0));
+        retryLine.appendChild(this._statChip('错题·首次错题', rc.first || 0));
+        retryLine.appendChild(this._statChip('错题·今日全部错题', rc.all || 0));
+        body.appendChild(retryLine);
+
+        // ===== ③ 最后更新 =====
+        const up = document.createElement('div');
+        up.className = 'cal-updated';
+        up.textContent = `🕐 最后更新：${this._fmtLocal(day.updatedAt)}`;
+        body.appendChild(up);
+    }
+
+    _statChip(label, value, accentColor) {
+        const el = document.createElement('div');
+        el.className = 'stat-chip';
+        if (accentColor) el.style.borderLeftColor = accentColor;
+        const lab = document.createElement('div');
+        lab.className = 'stat-chip-label';
+        lab.textContent = label;
+        const val = document.createElement('div');
+        val.className = 'stat-chip-value';
+        val.textContent = String(value);
+        if (accentColor) val.style.color = accentColor;
+        el.appendChild(lab); el.appendChild(val);
+        return el;
+    }
+
+    renderCalendarMonthSummary(year, month) {
+        const grid = document.getElementById('cal-summary-grid');
+        if (!grid) return;
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+        let s = { daysInMonth: 0, daysStudied: 0, totalNew: 0, totalReview: 0, totalAnswered: 0,
+                  avgAccuracy: 0, longestStreak: 0, streakUntilToday: 0 };
+        try { if (this.statsCalendar) s = this.statsCalendar.getMonthSummary(year, month) || s; }
+        catch (e) { console.warn('[getMonthSummary] fail：', e); }
+
+        const avgAccDisplay = (Number(s.avgAccuracy) || 0) * 100;
+        const items = [
+            ['本月天数', `${s.daysInMonth} 天`],
+            ['学习天数', `${s.daysStudied} 天`],
+            ['累计新词', `${s.totalNew || 0} 词`],
+            ['累计复习词', `${s.totalReview || 0} 词`],
+            ['月平均正确率', `${avgAccDisplay.toFixed(1)}%`, this._calAccColor(s.avgAccuracy)],
+            ['本月最长连续打卡', `${s.longestStreak || 0} 天`, '#ff9800'],
+            ['截至今天连续打卡', `${s.streakUntilToday || 0} 天`, '#2196F3'],
+            ['累计答题', `${s.totalAnswered || 0} 题`]
+        ];
+        items.forEach(triple => {
+            const [label, value, color] = triple;
+            grid.appendChild(this._statChip(label, value, color));
+        });
     }
 }

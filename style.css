@@ -968,3 +968,222 @@ main {
         border-bottom: 2px solid #2196F3;
     }
 }
+
+/* ========================================================================
+   [v1.0.2] 背诵日历页面样式
+   ======================================================================== */
+
+.cal-month-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.cal-nav-btn {
+    background-color: #f5f5f5;
+    border: 1px solid #ddd;
+    color: #333;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.15s;
+}
+.cal-nav-btn:hover { background-color: #eeeeee; }
+.cal-nav-btn:active { background-color: #e0e0e0; }
+
+.cal-grid-wrap {
+    width: 100%;
+    user-select: none;
+}
+
+.cal-week-header {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.cal-week-header > div {
+    text-align: center;
+    font-weight: 600;
+    color: #666;
+    padding: 6px 0;
+    font-size: 13px;
+    background-color: #fafafa;
+    border-radius: 4px;
+}
+.cal-week-header > div:first-child,
+.cal-week-header > div:last-child { color: #e57373; } /* 周末红 */
+
+.cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.cal-cell {
+    position: relative;
+    aspect-ratio: 1 / 1.1;
+    border: 1px solid #eceff1;
+    border-radius: 8px;
+    background-color: #fff;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: transform 0.1s, border-color 0.15s, background-color 0.15s;
+}
+.cal-cell:hover {
+    border-color: #90caf9;
+    background-color: #f5faff;
+}
+
+.cal-cell.out-of-month {
+    background-color: #fafafa;
+    color: #bbb;
+    cursor: pointer;
+}
+.cal-cell.out-of-month:hover {
+    background-color: #f0f4f8;
+    color: #888;
+}
+
+.cal-cell.today {
+    border: 2px solid #2196F3;
+    background-color: #e3f2fd;
+    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.12) inset;
+}
+
+.cal-cell.selected {
+    outline: 3px solid #2196F3;
+    outline-offset: -1px;
+}
+
+.cal-cell.has-data {
+    background-color: #fffef5;
+}
+
+.cal-date-num {
+    align-self: flex-end;
+    font-size: 13px;
+    color: #333;
+    font-weight: 600;
+    line-height: 1;
+}
+.cal-cell.out-of-month .cal-date-num { color: #bbb; }
+
+.cal-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    margin: 4px auto 0 auto;
+    display: block;
+}
+
+.cal-cell-bottom {
+    text-align: center;
+    font-size: 11px;
+    color: #777;
+    margin-top: 4px;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 日详情面板 */
+.day-detail-panel { }
+
+.cal-day-empty {
+    color: #888;
+    font-size: 14px;
+    padding: 10px 6px;
+    line-height: 1.7;
+    background: #fafafa;
+    border-left: 4px solid #eee;
+    border-radius: 4px;
+    margin: 4px 0;
+}
+
+.cal-stat-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.stat-chip {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-left: 4px solid #2196F3;
+    border-radius: 6px;
+    padding: 8px 12px;
+    min-width: 110px;
+    flex: 1 1 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.stat-chip-label {
+    font-size: 12px;
+    color: #666;
+}
+.stat-chip-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #222;
+    line-height: 1.2;
+}
+
+/* 正确率进度条 */
+.acc-bar {
+    height: 10px;
+    background-color: #eee;
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 12px 0 6px 0;
+}
+.acc-bar-fill {
+    height: 100%;
+    background-color: #4CAF50;
+    transition: width 0.3s;
+    border-radius: 5px;
+}
+
+.cal-updated {
+    margin-top: 20px;
+    font-size: 12px;
+    color: #9e9e9e;
+    text-align: right;
+}
+
+/* 月汇总卡片 */
+.cal-month-summary { }
+.cal-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+}
+
+/* 日历移动端窄屏适配 */
+@media (max-width: 768px) {
+    .cal-cell-bottom { display: none; } /* 窄屏藏底部数字，留白给色点 */
+    .cal-dot { width: 12px; height: 12px; }
+    .cal-date-num { font-size: 12px; }
+    .cal-nav-btn { padding: 5px 9px; font-size: 13px; }
+    #cal-today-btn { margin-left: 0 !important; margin-top: 6px; }
+}
+@media (max-width: 420px) {
+    .cal-cell { aspect-ratio: 1 / 1; padding: 3px; }
+    .cal-dot { width: 10px; height: 10px; }
+    .cal-date-num { font-size: 11px; }
+    .cal-week-header > div { font-size: 12px; padding: 4px 0; }
+    .stat-chip { min-width: 0; padding: 6px 8px; }
+    .stat-chip-value { font-size: 16px; }
+}
+

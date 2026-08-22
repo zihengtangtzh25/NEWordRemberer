@@ -18,9 +18,12 @@ class MemoryCurve {
 
     calculateNextReviewDate(lastReviewDate, reviewCount, easeFactor) {
         const days = this.calculateNextReviewDays(reviewCount, easeFactor);
-        const dateObj = new Date(lastReviewDate);
+        const dateObj = new Date(lastReviewDate + 'T00:00:00');  // 本地 0 点（与调用端一致）
         dateObj.setDate(dateObj.getDate() + days);
-        return dateObj.toISOString().split('T')[0];
+        // [v1.0.2 时区修复] dateObj 在本地时区，toISOString() 会转 UTC → 东/西半球都出错
+        //   改为本地 getFullYear/getMonth/getDate 回拼 YYYY-MM-DD
+        const pad2 = n => (n < 10 ? '0' : '') + n;
+        return dateObj.getFullYear() + '-' + pad2(dateObj.getMonth() + 1) + '-' + pad2(dateObj.getDate());
     }
 
     getEaseFactor(word) {
@@ -84,7 +87,12 @@ class MemoryCurve {
         // 之前 bug：TaskManager 排序时 getReviewPriority(a) 不传第二个参数 → today=undefined → new Date(undefined)=Invalid Date → diffDays=NaN → due 词排序全部错
         const safeToday = (typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today))
             ? today
-            : new Date().toISOString().split('T')[0];
+            : (() => {
+                // [v1.0.2 时区修复] 本地时区 YMD，不要 toISOString()（UTC）
+                const d = new Date();
+                const pad = n => (n < 10 ? '0' : '') + n;
+                return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+              })();
         const todayObj = new Date(safeToday + 'T00:00:00');
         const nextDateObj = new Date(nextDate + 'T00:00:00');
         const diffTime = nextDateObj - todayObj;

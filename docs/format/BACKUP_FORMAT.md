@@ -1,7 +1,7 @@
 # NEWordRemberer 背诵备份格式说明
 
-- 应用版本（APP_VERSION）：v1.0.1
-- 备份格式版本（FORMAT_VERSION）：v1.0.0（与 v1.0.0 完全兼容，schema 字段无增删）
+- 应用版本（APP_VERSION）：v1.0.2
+- 备份格式版本（FORMAT_VERSION）：v1.0.0（与 v1.0.0 完全兼容，schema 字段无增删；v1.0.2 新增的 `calendarStats` 为**本地衍生数据**，不参与备份，导入备份后由后续背诵自动重新累积）
 - 格式标识（format 字段）：`NEWordRemberer-Backup`
 - 本文档对应 `modules/SchemaRegistry.js` 中的 `generateMarkdown()`，作为「三边对照」之**文档边**。
 
@@ -29,7 +29,7 @@
 {
   "format": "NEWordRemberer-Backup",
   "formatVersion": "1.0.0",
-  "appVersion": "1.0.1",
+  "appVersion": "1.0.2",
   "appName": "NEWordRemberer",
   "exportedAt": "2026-08-21T10:30:00.000Z",
   "exportedFromFormat": {
@@ -127,16 +127,28 @@ JSON.parse(word.m)
 
 > **注意**：`todayTask`（今日任务）不属于备份范围，每次进入程序时根据当日日期重新生成。
 
+### 2.3 v1.0.2 新增：`calendarStats` —— 本地衍生数据（不参与备份）
+
+`calendarStats` 是 v1.0.2 新增的第 4 个 localStorage 键，用于存储**每日背诵结果的汇总快照**（只存数字，不存单词名）。结构见 README.md「v1.0.2 背诵日历」章节与 `modules/StatsCalendar.js`。
+
+| 项目 | 说明 |
+|---|---|
+| 是否参与备份 | **否** — 永远不进入 `NEWordRemberer-Backup` JSON 导出文件 |
+| 原因 | calendarStats 的全部数据都来源于 **wordBank.rXR** + **todayTask.results** 的统计汇总；属于「可重建的衍生数据」|
+| 导入后行为 | 导入备份不写 calendarStats；从导入次日开始，用户每次完成主会话 / 重做今日计划，都会在 calendarStats 中自动写入当日记录，重新累积 |
+| 彻底重置 | `WordBank.factoryResetKeepDefaultWords()` 会同步 `localStorage.removeItem('calendarStats')`，三方保持一致 |
+| 数据安全性 | 紧急写库成功时会同步写入；当日 todayTask.completed=true 但日历无数据时，打开日历页会懒回填重建一条当日记录（防止漏记）|
+
 ---
 
 ## 三、导入兼容性规则
 
 | 导入文件 formatVersion | 当前 v1.0.x 系列程序（格式基准 v1.0.0）| 处理方式 |
 |---|---|---|
-| 主版本 < 1（如 0.9.x 远古版）| v1.0.1 | 黄色警告，尝试按当前 v1.0.0 schema 解析，字段缺失的跳过；**远古版本升级路径见 `docs/changelog/CHANGELOG_v1.0.1.md` 附录** |
-| 主版本 == 1（如 1.0.0 ~ 1.9.9，含 v1.0.0 互导 v1.0.1）| v1.0.1 | ✅ 绿色，完全兼容，直接导入（schema 字段完全一致，仅 v1.0.1 校验规则更严格）|
-| 主版本 > 1（如 2.0.0 未来新版）| v1.0.1 | 🔴 红色警告 + 二次确认："此备份由更高版本导出，不保证新字段完整保留，是否继续？" |
-| 缺失 `format` 字段 或 format != 标识 | v1.0.1 | 拒绝，提示"非完整备份文件，可能是今日单词表或背诵结果导出文件，请使用【💾 导出背诵备份】生成的 JSON 文件" |
+| 主版本 < 1（如 0.9.x 远古版）| v1.0.2 | 黄色警告，尝试按当前 v1.0.0 schema 解析，字段缺失的跳过；**远古版本升级路径见 `docs/changelog/CHANGELOG_v1.0.1.md` 附录** |
+| 主版本 == 1（如 1.0.0 ~ 1.9.9，含 v1.0.0 互导 v1.0.1 / v1.0.2）| v1.0.2 | ✅ 绿色，完全兼容，直接导入（schema 字段完全一致；v1.0.2 新增 `calendarStats` 为本地衍生数据，不参与备份）|
+| 主版本 > 1（如 2.0.0 未来新版）| v1.0.2 | 🔴 红色警告 + 二次确认："此备份由更高版本导出，不保证新字段完整保留，是否继续？" |
+| 缺失 `format` 字段 或 format != 标识 | v1.0.2 | 拒绝，提示"非完整备份文件，可能是今日单词表或背诵结果导出文件，请使用【💾 导出背诵备份】生成的 JSON 文件" |
 
 ## 四、导入策略（用户可选）
 

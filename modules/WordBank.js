@@ -54,6 +54,8 @@ class WordBank {
         this.words = [];
         this.loadDefaultWords();  // loadDefaultWords 内部会 save 一次
         localStorage.removeItem(this.STORAGE_DATE_KEY);
+        // ===== [v1.0.2 背诵日历] 恢复出厂时一并清空本地日历统计（属于派生数据）=====
+        try { localStorage.removeItem('calendarStats'); } catch (e) { console.warn('[factoryReset]清 calendarStats 失败：', e); }
         return true;
     }
 
@@ -73,15 +75,22 @@ class WordBank {
             console.warn('[setCustomDate] 非法日期格式（需要 YYYY-MM-DD），拒绝写入：', dateStr);
             return false;
         }
+        // [v1.0.2 Bug2 时区修复] new Date(normalized + 'T00:00:00') 按本地时区解析，
+        //   toISOString() 返回的是 UTC 时间 → 在 UTC+X 时区（如北京=UTC+8），
+        //   '2026-08-23T00:00:00 本地' 会变成 '2026-08-22T16:00:00Z UTC' → split 后日期不一致，
+        //   导致所有合法日期都被误判成「自动进位」的假日期。
+        // 修复：用「本地年月日分别取 + 左补零」拼出本地字符串做比对，不要经过 UTC 转换。
         const d = new Date(normalized + 'T00:00:00');
         if (isNaN(d.getTime())) {
             console.warn('[setCustomDate] 日历中不存在此日期，拒绝写入：', normalized);
             return false;
         }
-        const reParseOk = d.toISOString().split('T')[0] === normalized;
+        const pad2 = n => (n < 10 ? '0' : '') + n;
+        const localYMD = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+        const reParseOk = localYMD === normalized;
         if (!reParseOk) {
-            // 例：2026-02-30 → new Date 进位到 2026-03-02 → toString 回来不相等 → 这是假日期
-            console.warn('[setCustomDate] 日期非法（自动进位），拒绝写入：', normalized);
+            // 例：2026-02-30 → new Date 进位到 2026-03-02 → localYMD 回拼不相等 → 这是假日期
+            console.warn('[setCustomDate] 日期非法（自动进位），拒绝写入：', normalized, '→实际解析为：', localYMD);
             return false;
         }
         localStorage.setItem(this.STORAGE_DATE_KEY, normalized);
@@ -94,7 +103,11 @@ class WordBank {
 
     getTodayDate() {
         const customDate = this.getCustomDate();
-        return customDate || new Date().toISOString().split('T')[0];
+        if (customDate) return customDate;
+        // [v1.0.2 时区修复] 不要用 toISOString()（返回 UTC），要本地时区拼 YYYY-MM-DD
+        const d = new Date();
+        const pad2 = n => (n < 10 ? '0' : '') + n;
+        return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
     }
 
     save() {
@@ -122,7 +135,10 @@ class WordBank {
             return false;
         }
         // ===== [缺陷21 v1.0.1] 添加前先做 schema 级校验（复用 SchemaRegistry），防 w/m 脏数据导致后续 JSON.parse 崩 =====
-        const todayStr = new Date().toISOString().split('T')[0];
+        // [v1.0.2 时区修复] 本地时区 YMD
+        const todayD = new Date();
+        const pad2 = n => (n < 10 ? '0' : '') + n;
+        const todayStr = todayD.getFullYear() + '-' + pad2(todayD.getMonth() + 1) + '-' + pad2(todayD.getDate());
         let mStr = typeof word.m === 'string' ? word.m : '';
         if (typeof word.m !== 'string') {
             try { mStr = JSON.stringify(word.m || []); } catch (_) { mStr = '[]'; }
@@ -210,7 +226,9 @@ class WordBank {
             const lastDateObj = new Date(lastDate + 'T00:00:00');
             const nextDateObj = new Date(lastDateObj);
             nextDateObj.setDate(nextDateObj.getDate() + nextDays);
-            const nextDate = nextDateObj.toISOString().split('T')[0];
+            // [v1.0.2 时区修复] lastDateObj 是本地 0 点构造，setDate 后仍为本地，回拼必须本地 YMD
+            const pad2_2 = n => (n < 10 ? '0' : '') + n;
+            const nextDate = nextDateObj.getFullYear() + '-' + pad2_2(nextDateObj.getMonth() + 1) + '-' + pad2_2(nextDateObj.getDate());
             return nextDate <= today;
         });
     }

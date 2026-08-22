@@ -16,7 +16,8 @@
 const SchemaRegistry = {
   // -------- 程序版本号 & 备份格式版本号 --------
   // 程序版本号（UI 顶部 / 设置区展示）
-  APP_VERSION: "1.0.1",
+  // [v1.0.2] 新增背诵日历（calendarStats 本地派生统计，CURRENT_VERSION 保持 1.0.0）
+  APP_VERSION: "1.0.2",
 
   // 备份格式版本号（写入导出 JSON，用于后续导入时做兼容判断）
   // v1.0.1 bugfix：格式字段未变，仅校验规则从严；v1.0.0 / v1.0.1 程序互导完全兼容
