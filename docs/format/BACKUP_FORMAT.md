@@ -15,7 +15,7 @@
 |---|---|---|
 | 边1（代码）| `modules/SchemaRegistry.js` | 人工维护（唯一真相源）|
 | 边2（JSON内嵌）| 导出 JSON 的 `exportedFromFormat` 字段 | 程序调用 `SchemaRegistry.generateEmbeddedFormatDoc()` 生成 |
-| 边3（文档）| 本文件 `BACKUP_FORMAT.md` | 对应 `SchemaRegistry.generateMarkdown()` 输出 |
+| 边3（文档）| 本文件 `docs/format/BACKUP_FORMAT.md` | 对应 `SchemaRegistry.generateMarkdown()` 输出 |
 
 任何格式修改都应**只修改 SchemaRegistry.js 中的 schemas 定义**，然后重新生成边2/边3，不要直接手改 JSON 内嵌说明或 MD 文档。
 
@@ -29,7 +29,7 @@
 {
   "format": "NEWordRemberer-Backup",
   "formatVersion": "1.0.0",
-  "appVersion": "1.0.0",
+  "appVersion": "1.0.1",
   "appName": "NEWordRemberer",
   "exportedAt": "2026-08-21T10:30:00.000Z",
   "exportedFromFormat": {
@@ -45,7 +45,7 @@
     },
     "customDateField": "string(YYYY-MM-DD) | null — 用户自定义的「今日日期」（用于模拟/调试不同日期的复习）；null 表示使用真实系统日期",
     "reviewResultEnum": ["", "对", "错", "不熟"],
-    "trilateralNote": "此对象与 SchemaRegistry.js（代码）、项目 BACKUP_FORMAT.md（文档），三者内容来源一致，三边对照防止格式漂移。"
+    "trilateralNote": "此对象与 SchemaRegistry.js（代码）、docs/format/BACKUP_FORMAT.md（文档），三者内容来源一致，三边对照防止格式漂移。"
   },
   "data": {
     "wordBank": [
@@ -133,7 +133,7 @@ JSON.parse(word.m)
 
 | 导入文件 formatVersion | 当前 v1.0.x 系列程序（格式基准 v1.0.0）| 处理方式 |
 |---|---|---|
-| 主版本 < 1（如 0.9.x 远古版）| v1.0.1 | 黄色警告，尝试按当前 v1.0.0 schema 解析，字段缺失的跳过；**远古版本升级路径见 `CHANGELOG_v1.0.1.md` 附录** |
+| 主版本 < 1（如 0.9.x 远古版）| v1.0.1 | 黄色警告，尝试按当前 v1.0.0 schema 解析，字段缺失的跳过；**远古版本升级路径见 `docs/changelog/CHANGELOG_v1.0.1.md` 附录** |
 | 主版本 == 1（如 1.0.0 ~ 1.9.9，含 v1.0.0 互导 v1.0.1）| v1.0.1 | ✅ 绿色，完全兼容，直接导入（schema 字段完全一致，仅 v1.0.1 校验规则更严格）|
 | 主版本 > 1（如 2.0.0 未来新版）| v1.0.1 | 🔴 红色警告 + 二次确认："此备份由更高版本导出，不保证新字段完整保留，是否继续？" |
 | 缺失 `format` 字段 或 format != 标识 | v1.0.1 | 拒绝，提示"非完整备份文件，可能是今日单词表或背诵结果导出文件，请使用【💾 导出背诵备份】生成的 JSON 文件" |

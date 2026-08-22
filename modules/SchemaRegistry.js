@@ -9,7 +9,7 @@
 // 三边对照说明：
 //   边1：本文件（SchemaRegistry.js）—— 代码中唯一真相源
 //   边2：导出 JSON 的 exportedFromFormat 字段 —— generateEmbeddedFormatDoc()
-//   边3：项目根目录 BACKUP_FORMAT.md —— generateMarkdown()
+//   边3：docs/format/BACKUP_FORMAT.md —— generateMarkdown()
 //   三者内容来源一致，确保格式定义不漂移。
 // =========================================================================
 
@@ -135,12 +135,12 @@ const SchemaRegistry = {
       wordObjectFields: wordFields,
       customDateField: `${s.customDateField.type} — ${s.customDateField.desc}`,
       reviewResultEnum: s.reviewResultValues.slice(),
-      trilateralNote: "此对象与 SchemaRegistry.js（代码）、项目 BACKUP_FORMAT.md（文档），三者内容来源一致，三边对照防止格式漂移。"
+      trilateralNote: "此对象与 SchemaRegistry.js（代码）、docs/format/BACKUP_FORMAT.md（文档），三者内容来源一致，三边对照防止格式漂移。"
     };
   },
 
   // -------- 生成 Markdown 格式文档（三边对照之边3）--------
-  // 用于生成项目根目录静态文件 BACKUP_FORMAT.md，供开发者查阅
+  // 用于生成 docs/format/BACKUP_FORMAT.md 静态文件，供开发者查阅
   generateMarkdown() {
     const v = this.CURRENT_VERSION;
     const s = this.schemas[v];
@@ -172,7 +172,7 @@ const SchemaRegistry = {
 |---|---|---|
 | 边1（代码）| \`modules/SchemaRegistry.js\` | 人工维护（唯一真相源）|
 | 边2（JSON内嵌）| 导出 JSON 的 \`exportedFromFormat\` 字段 | 程序调用 \`generateEmbeddedFormatDoc()\` 生成 |
-| 边3（文档）| 本文件 \`BACKUP_FORMAT.md\` | 程序调用 \`generateMarkdown()\` 生成 |
+| 边3（文档）| 本文件 \`docs/format/BACKUP_FORMAT.md\` | 程序调用 \`generateMarkdown()\` 生成 |
 
 任何格式修改都应**只修改 SchemaRegistry.js 中的 schemas 定义**，然后重新生成边2/边3，不要直接手改 JSON 内嵌说明或 MD 文档。
 

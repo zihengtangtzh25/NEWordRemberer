@@ -2,7 +2,7 @@
 
 > **当前程序版本**：`v1.0.1` · **备份格式版本**：`v1.0.0` · 生效日期：2026-08-21
 >
-> 📦 **v1.0.1 changelog 摘要**（2026-08-21）：25 项 bug 修复（XSS 防护、导入语义修正、紧急写库、三模式错题重测聚合状态、同日轮次唯一性、UI 反馈三档、多版本一致性）。详见同目录 `CHANGELOG_v1.0.1.md`。
+> 📦 **v1.0.1 changelog 摘要**（2026-08-21）：25 项 bug 修复（XSS 防护、导入语义修正、紧急写库、三模式错题重测聚合状态、同日轮次唯一性、UI 反馈三档、多版本一致性）。详见 `docs/changelog/CHANGELOG_v1.0.1.md`。
 >
 > ⚠️ **开发者注意**：版本号存在多个来源位点，版本更新时必须全部同步，详见下方「[版本信息位点清单更新版本时必须一次性同步)**。
 
@@ -80,12 +80,19 @@ NEWordRemberer/
 ├── style.css                 # 样式文件（含 Modal / Tab / 版本徽章样式）
 ├── app.js                    # 应用入口：实例化 4 大模块 + UIManager.bindEvents()
 ├── README.md                 # 本文件（含版本号与更迭注意事项）
-├── BACKUP_FORMAT.md          # 🆕 背诵备份格式说明文档（三边对照之"文档边"）
-├── CHANGELOG_v1.0.1.md       # 🆕 v1.0.1 发布说明（25 项 bug 修复详情 + 数据库升级方案）
-├── critics.md                # 🆕 代码审查报告（v1.0.1 残余 2 项 + 设计决策附录）
 │
 ├── data/
 │   └── defaultWords.js       # 默认词库（3146 个单词，首次使用自动加载）
+│
+├── docs/                     # 🆕 非代码数据文件（v1.0.1 起统一收纳）
+│   ├── changelog/            # 版本更新文件
+│   │   ├── CHANGELOG_v1.0.1.md   # v1.0.1 发布说明（25 项 bug 修复详情 + 数据库升级方案）
+│   │   └── critics.md            # 代码审查报告（v1.0.1 残余 2 项 + 设计决策附录）
+│   ├── format/               # 数据库格式修改文件
+│   │   └── BACKUP_FORMAT.md      # 背诵备份格式说明文档（三边对照之"文档边"）
+│   ├── toAI/                # AI 读取指南与提示词等（暂空）
+│   └── other/               # 其他杂乱数据
+│       └── 3500词.csv           # 单词表（杂项数据示例）
 │
 └── modules/
     ├── SchemaRegistry.js     # 🆕 版本/格式注册中心（三边对照的"代码边"，唯一真相源）
@@ -147,7 +154,7 @@ NEWordRemberer/
 - 默认词库：3146 个单词（详见 `data/defaultWords.js`）
 - 数据全部存在浏览器 localStorage 中；**清浏览器缓存/无痕模式会导致丢失，务必定期导出备份**
 - localStorage 三个键的详细结构、字段说明、版本兼容性请参考：
-  - 📄 [BACKUP_FORMAT.md](file:///g:/19725/code_part/project/NEWordRemberer/BACKUP_FORMAT.md)
+  - 📄 [BACKUP_FORMAT.md](file:///g:/19725/code_part/project/NEWordRemberer/docs/format/BACKUP_FORMAT.md)
   - 📚 `modules/SchemaRegistry.js` → `schemas["1.0.0"]`
 
 ---
@@ -166,10 +173,10 @@ NEWordRemberer/
 |---|---|---|---|---|
 | 1 ✅ | 「程序版本号」运行时常量 | `modules/SchemaRegistry.js` 第 18~19 行 | `APP_VERSION` | **`"1.0.1"`**（所有 UI 徽章都从这里读）|
 | 2 ✅ | 「备份格式版本号」运行时常量 | `modules/SchemaRegistry.js` 第 21~23 行 | `CURRENT_VERSION` | **`"1.0.0"`**（v1.0.1 无 schema 结构变动，与 v1.0.0 完全兼容；导入/导出版本兼容判断的基准）|
-| 3 ✅ | 「新 schema 注册」 | 同上 `schemas` 对象 | schemas 键名 | 目前仅 `schemas["1.0.0"]`（追加式升级，**绝不覆盖旧条目**；远古版本升级路径见同目录 `CHANGELOG_v1.0.1.md` 附录）|
+| 3 ✅ | 「新 schema 注册」 | 同上 `schemas` 对象 | schemas 键名 | 目前仅 `schemas["1.0.0"]`（追加式升级，**绝不覆盖旧条目**；远古版本升级路径见 `docs/changelog/CHANGELOG_v1.0.1.md` 附录）|
 | 4 ✅ | 页面默认版本号兜底 | `index.html` `<h1>` 内 `<span id="app-version-badge">` 文本 | `v1.0.1` | UIManager 构造函数会从 SchemaRegistry 再覆盖一次，这里是兜底显示 |
-| 5 ✅ | 静态格式文档表头 | `BACKUP_FORMAT.md` 顶部两处 | 应用版本 / 备份格式版本 | 「应用版本 v1.0.1 / 备份格式版本 v1.0.0（与 v1.0.0 完全兼容）」 |
-| 6 ✅ | **本 README 顶部** | `README.md` 前 6 行 | 版本 banner + changelog 摘要 | 当前程序 v1.0.1 · 备份格式 v1.0.0 · 发布日期 2026-08-21；已新增 v1.0.1 changelog 摘要 + 指向 `CHANGELOG_v1.0.1.md` 完整发布说明的链接 |
+| 5 ✅ | 静态格式文档表头 | `docs/format/BACKUP_FORMAT.md` 顶部两处 | 应用版本 / 备份格式版本 | 「应用版本 v1.0.1 / 备份格式版本 v1.0.0（与 v1.0.0 完全兼容）」 |
+| 6 ✅ | **本 README 顶部** | `README.md` 前 6 行 | 版本 banner + changelog 摘要 | 当前程序 v1.0.1 · 备份格式 v1.0.0 · 发布日期 2026-08-21；已新增 v1.0.1 changelog 摘要 + 指向 `docs/changelog/CHANGELOG_v1.0.1.md` 完整发布说明的链接 |
 
 > **漏改任何一个都会造成版本漂移！** 建议复制上面 6 条做成 CheckList，改完一条打一条。
 
@@ -221,7 +228,7 @@ schemas["1.1.0"].upgradeFrom1_0_0 = function(data) {
 - 导出一个 JSON → 打开看 `exportedFromFormat.schemaVersion` 是否 == 边1 的版本
 - 检查 `exportedFromFormat.wordObjectFields` 每一条描述是否 == 边1 的 type + desc
 
-**边3（文档）= `BACKUP_FORMAT.md`**
+**边3（文档）= `docs/format/BACKUP_FORMAT.md`**
 - 打开文档 → 对比顶部「备份格式版本」和「WordObject 字段表」是否与边1 一致
 
 三边任何一对不一致 → 说明版本更新时漏改位点，**立即回滚修复后再提交**。
@@ -243,7 +250,7 @@ schemas["1.1.0"].upgradeFrom1_0_0 = function(data) {
   - [ ] `formatVersion` 是新版本
   - [ ] `exportedFromFormat.schemaVersion` 是新版本
   - [ ] `stats.wordCount` 与首页「词库总数」相等
-- [ ] 打开 BACKUP_FORMAT.md → 顶部版本号与代码一致 → 字段表与导出 JSON 内嵌一致
+- [ ] 打开 docs/format/BACKUP_FORMAT.md → 顶部版本号与代码一致 → 字段表与导出 JSON 内嵌一致
 - [ ] 「📥 导入旧版备份（v1.0.0 样例）」→ 不报格式错误，单词完整还原
 - [ ] 「📥 导入伪造高版本备份」→ 弹出版本过高警告 + confirm
 - [ ] 「📥 导入今日单词表 JSON」→ 正确拒绝并提示原因

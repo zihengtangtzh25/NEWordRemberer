@@ -317,7 +317,7 @@ if (target && typeof target.closest === 'function' &&
 
 ---
 
-## ⚪ P3 可维护性 / 防御性编程（全部 10 项已修复，原 P3 共 12 项，缺 QA26 数据质量 + QA27 性能未修见 critics.md）
+## ⚪ P3 可维护性 / 防御性编程（全部 10 项已修复，原 P3 共 12 项，缺 QA26 数据质量 + QA27 性能未修见 docs/changelog/critics.md）
 
 ---
 
@@ -473,7 +473,7 @@ if (this.currentPage === 'home') this.renderHome();   // 首页强刷，创建�
 ## 🗝 关键原则（版本升级铁则）
 
 > **SchemaRegistry 的 schemas 对象是「追加式升级」——绝不覆盖旧条目。**  
-> 每个版本的 schema 定义都保留在 `schemas["X.Y.Z"]` 键名下，未来 v1.1 / v2.0 时直接新增键值；旧版本数据通过 `upgradeFromX_Y_ToX_Z(word)` 函数转换。任何版本升级方案都必须先写在 BACKUP_FORMAT.md 再写代码。
+> 每个版本的 schema 定义都保留在 `schemas["X.Y.Z"]` 键名下，未来 v1.1 / v2.0 时直接新增键值；旧版本数据通过 `upgradeFromX_Y_ToX_Z(word)` 函数转换。任何版本升级方案都必须先写在 docs/format/BACKUP_FORMAT.md 再写代码。
 
 ---
 
@@ -481,7 +481,7 @@ if (this.currentPage === 'home') this.renderHome();   // 首页强刷，创建�
 
 > 适用场景：用户手头有 v0.9.x 时代（NEWordRemberer 早期内测版，格式标识符可能不是 `NEWordRemberer-Backup`，字段数也不同）导出的备份，想在 v1.0.1 上导入。
 
-**v1.0.1 对 `< 1.0.0`（如 0.9.3 等远古版）的导入策略（BACKUP_FORMAT.md 已有声明，完全保留）**：
+**v1.0.1 对 `< 1.0.0`（如 0.9.3 等远古版）的导入策略（docs/format/BACKUP_FORMAT.md 已有声明，完全保留）**：
 
 | 策略层级 | 处理逻辑 | 用户可见 |
 |---|---|---|
@@ -599,7 +599,7 @@ importBackupData 顶层的版本匹配矩阵（**v1.0.1 已实现，无需改代
 
 # 📝 附录 III：v1.0.1 引入的 Code Review 铁则摘要（防止同类 Bug 回归）
 
-（完整版见 [critics.md 附录 A 第五节](file:///g:/19725/code_part/project/NEWordRemberer/critics.md#L230-L239)，此处为宣发版摘要列重点）
+（完整版见 [critics.md 附录 A 第五节](file:///g:/19725/code_part/project/NEWordRemberer/docs/changelog/critics.md#L230-L239)，此处为宣发版摘要列重点）
 
 1. **算法只能在 MemoryCurve.js 里写一份**。WordBank / TaskManager / UIManager 不许重复实现 easeFactor / due 判断 / lastReviewIndex——任何 easeFactor bug 都按这条追责。
 2. **双保险**：入库前 validateWord 严格校验（第一道防线）；渲染使用时 try-catch 降级（第二道防线）。「上游已校验过」永远不是「下游裸奔」的借口。
@@ -617,10 +617,10 @@ importBackupData 顶层的版本匹配矩阵（**v1.0.1 已实现，无需改代
 - [x] APP_VERSION 6 处位点全局同步（SchemaRegistry、index.html badge、README banner、BACKUP_FORMAT title、README 位点清单、grep 回归 0 遗漏）
 - [x] CURRENT_FORMAT_VERSION 保持 "1.0.0"（schema 结构 0 变动）
 - [x] 25 项 bug 修复全部落地（Critics.md 原文 QA01-25 已删除，代码 grep v1.0.1 注释全部存在）
-- [x] critics.md 整理完成：QA26 / QA27 标注「未修复 v1.0.1」，设计决策附录完整保留
+- [x] docs/changelog/critics.md 整理完成：QA26 / QA27 标注「未修复 v1.0.1」，设计决策附录完整保留
 - [x] 远古版本（< 1.0）升级路径完整保留，未做任何破坏性变更
 - [x] v1.0.0 → v1.0.1 零迁移，双向互导兼容性 0 回归（手动验证过：v1.0.0 备份 → v1.0.1 导入成功 3146 词；v1.0.1 备份 → v1.0.0 导入也成功）
 - [x] CHANGELOG_v1.0.1.md 宣发文档完成
 
 ---
-*本 CHANGELOG 与 README.md、BACKUP_FORMAT.md、critics.md 三文档内容互相引用一致，版本位点与 SchemaRegistry.js 运行时常量三边对齐。*
+*本 CHANGELOG 与 README.md、docs/format/BACKUP_FORMAT.md、docs/changelog/critics.md 三文档内容互相引用一致，版本位点与 SchemaRegistry.js 运行时常量三边对齐。*
