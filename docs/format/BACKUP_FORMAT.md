@@ -1,6 +1,6 @@
 # NEWordRemberer 背诵备份格式说明
 
-- 应用版本（APP_VERSION）：v1.0.2
+- 应用版本（APP_VERSION）：v1.0.3
 - 备份格式版本（FORMAT_VERSION）：v1.0.0（与 v1.0.0 完全兼容，schema 字段无增删；v1.0.2 新增的 `calendarStats` 为**本地衍生数据**，不参与备份，导入备份后由后续背诵自动重新累积）
 - 格式标识（format 字段）：`NEWordRemberer-Backup`
 - 本文档对应 `modules/SchemaRegistry.js` 中的 `generateMarkdown()`，作为「三边对照」之**文档边**。
@@ -29,7 +29,7 @@
 {
   "format": "NEWordRemberer-Backup",
   "formatVersion": "1.0.0",
-  "appVersion": "1.0.2",
+  "appVersion": "1.0.3",
   "appName": "NEWordRemberer",
   "exportedAt": "2026-08-21T10:30:00.000Z",
   "exportedFromFormat": {

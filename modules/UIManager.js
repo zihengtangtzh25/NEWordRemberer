@@ -404,8 +404,8 @@ class UIManager {
             const nextBtnEN = document.getElementById('next-word-btn-en');
             if (nextBtnEN) nextBtnEN.style.display = 'block';
             this._refreshCurrentResultUI(result);
-            // 判题完成后 500ms 自动跳下一题（中译英 / 英译中都生效，与答对自动跳题一致）
-            setTimeout(() => { this.nextWord(); }, 500);
+            // [v1.0.3] 删除 0/8/9 判题后 500ms 自动跳下一题的延时：改为用户主动按 Enter 或点击"下一题"按钮跳题
+            // 原因：用户反馈 0/8/9 判题后过早自动跳题，看不到反馈颜色 / 改判机会；与 selectAnswer（点选项）路径解耦
         } else {
             // ===== [Bug 10 v1.0.1] 改判操作：只刷新 UI + 覆盖最后一条记录结果，不自动跳题（用户手动 Enter/下一步才跳）=====
             const last = [...this.reviewResults].reverse().find(r => r.word === this.currentWord.w);
