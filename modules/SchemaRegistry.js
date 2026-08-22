@@ -16,9 +16,10 @@
 const SchemaRegistry = {
   // -------- 程序版本号 & 备份格式版本号 --------
   // 程序版本号（UI 顶部 / 设置区展示）
-  APP_VERSION: "1.0.0",
+  APP_VERSION: "1.0.1",
 
   // 备份格式版本号（写入导出 JSON，用于后续导入时做兼容判断）
+  // v1.0.1 bugfix：格式字段未变，仅校验规则从严；v1.0.0 / v1.0.1 程序互导完全兼容
   CURRENT_VERSION: "1.0.0",
 
   // 固定格式标识（用于拒绝非备份文件的导入）
@@ -52,17 +53,43 @@ const SchemaRegistry = {
       reviewResultValues: ["", "对", "错", "不熟"],
 
       // WordObject 字段级校验（返回 true/false）
+      // v1.0.1 bugfix（缺陷01）：多层校验 m 字段（string→JSON可parse→数组→嵌套字段），防白屏；加 < 字符拦截（XSS 联动缺陷02）
       validateWord: (w) => {
         if (!w || typeof w !== 'object') return false;
         if (typeof w.w !== 'string' || w.w.length === 0) return false;
+        // XSS 防御：w 里禁止出现 '<'（防止恶意用户构造 <script> 作为单词名，渲染时注入）
+        if (w.w.indexOf('<') !== -1) return false;
         if (typeof w.m !== 'string') return false;
+        // ===== [缺陷01] m 字段多层深层校验 =====
+        try {
+          const parsed = JSON.parse(w.m);
+          if (!Array.isArray(parsed)) return false;
+          for (let i = 0; i < parsed.length; i++) {
+            const it = parsed[i];
+            if (!it || typeof it !== 'object') return false;
+            if (typeof it.p !== 'string') return false;                // p = 词性必须 string
+            if (it.p.indexOf('<') !== -1) return false;              // p 防 XSS
+            if (!Array.isArray(it.c)) return false;                  // c = 释义数组
+            for (let j = 0; j < it.c.length; j++) {
+              if (typeof it.c[j] !== 'string') return false;         // c[] 每项必须 string
+              if (it.c[j].indexOf('<') !== -1) return false;        // c[] 防 XSS
+            }
+          }
+        } catch (e) {
+          return false;   // JSON.parse 失败 → 不合法（m 损坏时直接拦住，避免后续 render 白屏）
+        }
+        // ===== cAt：必须是合法 YYYY-MM-DD =====
         if (typeof w.cAt !== 'string') return false;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(w.cAt)) return false;
+        // ===== r1~r10 轮次：日期格式 + 结果枚举值 =====
+        const validResults = ["", "对", "错", "不熟"];
         for (let i = 1; i <= 10; i++) {
           const d = w[`r${i}D`];
           const r = w[`r${i}R`];
           if (typeof d !== 'string') return false;
           if (typeof r !== 'string') return false;
-          if (r && ["", "对", "错", "不熟"].indexOf(r) === -1) return false;
+          if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;   // rXR 有值时必须是合法日期
+          if (validResults.indexOf(r) === -1) return false;         // rXR 结果必须在枚举里
         }
         return true;
       }

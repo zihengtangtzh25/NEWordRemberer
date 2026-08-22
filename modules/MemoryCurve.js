@@ -4,6 +4,9 @@ class MemoryCurve {
         this.defaultEaseFactor = 1.5;
         this.minEaseFactor = 1.2;
         this.maxEaseFactor = 2.5;
+        // ===== [缺陷25 v1.0.1] 「不熟」结果的 easeFactor 下限：单一常量，避免 WordBank 写死 1.3 vs MC 计算值 min+0.1 未来漂移 =====
+        // 语义：错 → 回到 minEaseFactor (1.2)；不熟 → 比错宽松 0.1 (1.3)
+        this.MIN_UNFAMILIAR_EASE = this.minEaseFactor + 0.1;  // =1.3
         this.minInterval = 1;
         this.maxInterval = 100;
     }
@@ -31,7 +34,8 @@ class MemoryCurve {
                 } else if (result === '错') {
                     easeFactor = Math.max(this.minEaseFactor, easeFactor - 0.2);
                 } else if (result === '不熟') {
-                    easeFactor = Math.max(this.minEaseFactor + 0.1, easeFactor - 0.1);
+                    // [缺陷25 v1.0.1] 统一用 MIN_UNFAMILIAR_EASE 常量，单一真相源
+                    easeFactor = Math.max(this.MIN_UNFAMILIAR_EASE, easeFactor - 0.1);
                 }
             }
         }
@@ -48,7 +52,8 @@ class MemoryCurve {
         } else if (result === '错') {
             newEaseFactor = Math.max(this.minEaseFactor, currentEaseFactor - 0.2);
         } else if (result === '不熟') {
-            newEaseFactor = Math.max(this.minEaseFactor + 0.1, currentEaseFactor - 0.1);
+            // [缺陷25 v1.0.1] 统一用 MIN_UNFAMILIAR_EASE 常量，单一真相源
+            newEaseFactor = Math.max(this.MIN_UNFAMILIAR_EASE, currentEaseFactor - 0.1);
         }
         
         return Math.min(this.maxEaseFactor, newEaseFactor);
@@ -70,17 +75,22 @@ class MemoryCurve {
     getReviewPriority(word, today) {
         const lastReviewIndex = this.getLastReviewIndex(word);
         if (lastReviewIndex === 0) return 0;
-        
+
         const lastDate = word[`r${lastReviewIndex}D`];
         const easeFactor = this.getEaseFactor(word);
         const nextDate = this.calculateNextReviewDate(lastDate, lastReviewIndex - 1, easeFactor);
-        
-        const todayObj = new Date(today);
-        const nextDateObj = new Date(nextDate);
+
+        // ===== [Bug 13 v1.0.1] today 参数规范化：必须是合法 YYYY-MM-DD，否则 fallback 到真实今天（强制本地 0 点避免时区漂移）=====
+        // 之前 bug：TaskManager 排序时 getReviewPriority(a) 不传第二个参数 → today=undefined → new Date(undefined)=Invalid Date → diffDays=NaN → due 词排序全部错
+        const safeToday = (typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today))
+            ? today
+            : new Date().toISOString().split('T')[0];
+        const todayObj = new Date(safeToday + 'T00:00:00');
+        const nextDateObj = new Date(nextDate + 'T00:00:00');
         const diffTime = nextDateObj - todayObj;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        return diffDays;
+
+        return diffDays;   // 逾期越多（负数越小）优先级越高，排序 ASC 正好先出 due 最久的
     }
 
     getLastReviewIndex(word) {

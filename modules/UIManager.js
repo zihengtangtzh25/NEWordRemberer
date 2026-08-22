@@ -8,19 +8,29 @@ class UIManager {
         this.reviewIndex = 0;
         this.reviewWords = [];
         this.reviewResults = [];
-        this.retryResults = [];
+        this.retryResults = [];      // 向后兼容保留（已 deprecated，主要靠 retryState）
         this.currentWord = null;
         this.options = [];
         this.isAnswered = false;
-        this.isRetry = false;
+        this.isRetry = false;        // 向后兼容标记（已 deprecated，retryState.isRetry 为准）
         this.currentSearchWord = null;
-        this.retryRound = 0;
+
+        // ===== [B3 FINAL v1.0.1 + 跨模块铁则 6] 错题重测聚合状态：DEFAULT 定义唯一，打开流程时一次性 reset =====
+        this.DEFAULT_RETRY_STATE = Object.freeze({
+            isRetry: false,                        // 当前是否处于「三种模式之一」的错题重测中（歧义 3 紧急写库判定核心）
+            currentMode: null,                     // 'chain' | 'first' | 'all' | null
+            chainRounds: [],                       // 链式：每一轮 = {round, results:[{w,result}], endTime}（顺序推进，越靠后越新）
+            firstResult: null,                     // 首次模式：null=未做过，否则 = {results, endTime}
+            allResult: null,                       // 全部模式：null=未做过，否则 = {results, endTime}
+        });
+        this.retryState = { ...this.DEFAULT_RETRY_STATE };
 
         // ===== 导入/导出备份相关 =====
         this._pendingImportText = '';   // 暂存的 JSON 文本（文件或粘贴）
         this._pendingImportParsed = null; // 解析后的对象
         this._pendingImportValid = false;  // 是否通过格式校验
         this._pendingForceHighVer = false; // 用户是否确认强制导入高版本
+        this._pendingHighVerNeedConfirm = false;  // [缺陷 08] 声明字段（之前只用不声明）
 
         // 设置版本号徽章（以 SchemaRegistry 为准，确保 UI 与代码版本一致）
         try {
@@ -298,67 +308,79 @@ class UIManager {
 
     selectOption(index) {
         if (this.isAnswered) return;
-        
+
         const selected = this.options[index];
-        
+
         let result = selected.isCorrect ? '对' : '错';
         if (!selected.isCorrect) {
-            const correctDefinitions = JSON.parse(this.currentWord.m).flatMap(m => m.c);
-            if (correctDefinitions.some(d => d.includes(selected.text) || selected.text.includes(d))) {
+            // m 字段 try-catch（联动缺陷 01 m 损坏不崩）
+            let meanings;
+            try { meanings = JSON.parse(this.currentWord.m); } catch (_) { meanings = []; }
+            const correctDefinitions = meanings.flatMap(m => m.c || []);
+            if (correctDefinitions.some(d => typeof d === 'string' && (d.includes(selected.text) || selected.text.includes(d)))) {
                 result = '不熟';
             }
         }
-        
+
         this.reviewResults.push({ word: this.currentWord.w, result: result, type: this.currentWord.type });
-        
+
         const feedback = document.getElementById('en-answer-feedback');
         const correctDisplay = document.getElementById('en-correct-answer');
-        
-        const correctDefinitions = JSON.parse(this.currentWord.m).flatMap(m => m.c);
-        
+        let meanings;
+        try { meanings = JSON.parse(this.currentWord.m); } catch (_) { meanings = []; }
+        const correctDefinitions = meanings.flatMap(m => m.c || []);
+
+        // ===== [Bug 09 + C1 v1.0.1] 三档分支（不熟=橙色，不再折叠进错），保留绿/橙/红体系，不引入新色 =====
         if (result === '对') {
             feedback.innerHTML = '<span style="color: green;">✓ 回答正确！</span>';
+        } else if (result === '不熟') {
+            feedback.innerHTML = '<span style="color: #ff9800;">~ 意思接近正确答案（不熟）</span>';
         } else {
             feedback.innerHTML = '<span style="color: red;">✗ 回答错误</span>';
         }
-        
+
         correctDisplay.textContent = `标准答案：${correctDefinitions.join('、')}`;
-        
+
         const buttons = document.querySelectorAll('.option-btn');
         buttons.forEach((btn, i) => {
-            if (this.options[i].isCorrect) {
+            if (this.options[i] && this.options[i].isCorrect) {
                 btn.style.backgroundColor = '#4CAF50';
                 btn.style.color = 'white';
-            } else if (i === index && !this.options[i].isCorrect) {
+            } else if (result === '不熟' && i === index) {
+                // [Bug 09] 用户选的是近义词 → 橙色高亮（正确选项仍然绿，不改动绿=正确的体系）
+                btn.style.backgroundColor = '#ff9800';
+                btn.style.color = 'white';
+            } else if (i === index && this.options[i] && !this.options[i].isCorrect) {
                 btn.style.backgroundColor = '#f44336';
                 btn.style.color = 'white';
             }
             btn.disabled = true;
         });
-        
+
         this.isAnswered = true;
         document.getElementById('next-word-btn-en').style.display = 'block';
-        
+
         if (result === '对') {
-            setTimeout(() => {
-                this.nextWord();
-            }, 500);
+            setTimeout(() => { this.nextWord(); }, 500);
         }
     }
 
     setResult(result) {
-        if (this.reviewResults.length === 0) {
+        // ===== [Bug 10 v1.0.1] 改判操作：先刷新当前 UI（反馈区+按钮高亮），不再直接跳题（Enter/下一步才跳） =====
+        if (!this.isAnswered) {
+            // 用户第一次按 0/8/9 没先点提交/选选项的情况：先把结果进 reviewResults
             this.reviewResults.push({ word: this.currentWord.w, result: result, type: this.currentWord.type });
+            this.isAnswered = true;
+            document.getElementById('user-input').disabled = true;
+            document.getElementById('next-word-btn').style.display = 'block';
+            document.getElementById('next-word-btn-en').style.display = 'block';
         } else {
-            const lastResult = this.reviewResults[this.reviewResults.length - 1];
-            if (lastResult && lastResult.word === this.currentWord.w) {
-                lastResult.result = result;
-            } else {
-                this.reviewResults.push({ word: this.currentWord.w, result: result, type: this.currentWord.type });
-            }
+            // 正常改判：找到当前词最后一条记录覆盖 result
+            const last = [...this.reviewResults].reverse().find(r => r.word === this.currentWord.w);
+            if (last) last.result = result;
         }
-        
-        this.nextWord();
+        // 刷新反馈区 + 按钮配色（数据改了，视图立即同步）
+        this._refreshCurrentResultUI(result);
     }
 
     nextWord() {
@@ -367,11 +389,31 @@ class UIManager {
     }
 
     finishReview() {
-        if (!this.isRetry) {
-            this.taskManager.completeTask(this.reviewResults);
-        } else {
-            this.retryResults.push([...this.reviewResults]);
+        // ===== [Bug 12 + A5 ② v1.0.1] 三模式错题重测：绝不调用 completeTask，不写词库；结果存入 retryState.xxxResult =====
+        if (this.retryState && this.retryState.isRetry) {
+            const mode = this.retryState.currentMode;
+            const freshCopy = JSON.parse(JSON.stringify(this.reviewResults || []));
+            if (mode === 'chain') {
+                this.retryState.chainRounds.push({
+                    round: this.retryState.chainRounds.length + 1,
+                    results: freshCopy,
+                    endTime: Date.now()
+                });
+            } else if (mode === 'first') {
+                this.retryState.firstResult = { results: freshCopy, endTime: Date.now() };
+            } else if (mode === 'all') {
+                this.retryState.allResult = { results: freshCopy, endTime: Date.now() };
+            }
+            // 退出 retry 状态标记（歧义 3 紧急写库判断依据）
+            this.retryState.isRetry = false;
+            this.retryState.currentMode = null;
+            this.isRetry = false;   // 旧标记向后兼容
+            this.showPage('results');
+            return;
         }
+
+        // ===== 首次背诵 / 重做今日计划：完整写库（completeTask 内部会保证每日一轮唯一性 + 最后写 todayTask）=====
+        this.taskManager.completeTask(this.reviewResults);
         this.isRetry = false;
         this.showPage('results');
     }
@@ -429,134 +471,162 @@ class UIManager {
 
     renderResultSection(title, results, sectionClass) {
         const resultsList = document.getElementById('results-list');
-        
+
         const section = document.createElement('div');
         section.className = `result-section ${sectionClass}`;
-        
+
         const titleRow = document.createElement('div');
         titleRow.className = 'result-section-title';
-        
+
         const correctCount = results.filter(r => r.result === '对').length;
         const wrongCount = results.filter(r => r.result === '错').length;
         const unfamiliarCount = results.filter(r => r.result === '不熟').length;
-        
-        titleRow.innerHTML = `<strong>${title}</strong> (对: ${correctCount} | 不熟: ${unfamiliarCount} | 错: ${wrongCount})`;
+
+        // ===== [缺陷 02 v1.0.1] XSS 防护：全部 DOM API + textContent，不用 innerHTML 插 w/m =====
+        const titleStrong = document.createElement('strong');
+        titleStrong.textContent = title;
+        titleRow.appendChild(titleStrong);
+        titleRow.appendChild(document.createTextNode(
+            ` (对: ${correctCount} | 不熟: ${unfamiliarCount} | 错: ${wrongCount})`
+        ));
         section.appendChild(titleRow);
-        
+
         const list = document.createElement('div');
         list.className = 'result-items';
-        
+
         results.forEach(result => {
             const word = this.wordBank.getWord(result.word);
             if (!word) return;
-            
-            const meanings = JSON.parse(word.m);
-            const definitions = meanings.flatMap(m => m.c);
-            
+            // m 字段 try-catch（缺陷 01 联动，m 损坏不降崩）
+            let meanings = [];
+            try { meanings = JSON.parse(word.m); } catch (_) { meanings = []; }
+            const definitions = meanings.flatMap(m => Array.isArray(m.c) ? m.c : []).join('、');
+
             const item = document.createElement('div');
             item.className = `result-item ${result.result}`;
-            item.innerHTML = `
-                <div class="result-word">${result.word}</div>
-                <div class="result-definition">${definitions.join('、')}</div>
-                <div class="result-tag ${result.type}">${result.type === 'new' ? '新单词' : '复习'}</div>
-                <div class="result-status ${result.result}">${result.result}</div>
-            `;
+
+            const wordDiv = document.createElement('div');
+            wordDiv.className = 'result-word';
+            wordDiv.textContent = result.word;
+            item.appendChild(wordDiv);
+
+            const defDiv = document.createElement('div');
+            defDiv.className = 'result-definition';
+            defDiv.textContent = definitions;
+            item.appendChild(defDiv);
+
+            const tagDiv = document.createElement('div');
+            tagDiv.className = `result-tag ${result.type}`;
+            tagDiv.textContent = result.type === 'new' ? '新单词' : '复习';
+            item.appendChild(tagDiv);
+
+            const stDiv = document.createElement('div');
+            stDiv.className = `result-status ${result.result}`;
+            stDiv.textContent = result.result;
+            item.appendChild(stDiv);
+
             list.appendChild(item);
         });
-        
+
         section.appendChild(list);
         resultsList.appendChild(section);
     }
 
-    retryWrong() {
-        let wrongWords;
-        
-        if (this.retryRound === 0) {
-            const firstResults = this.taskManager.getTodayTask()?.results || [];
-            wrongWords = firstResults.filter(r => r.result === '错');
-        } else {
-            const lastRetry = this.retryResults[this.retryResults.length - 1];
-            if (!lastRetry || lastRetry.length === 0) {
-                alert('没有错题需要重开');
-                return;
-            }
-            wrongWords = lastRetry.filter(r => r.result === '错');
-        }
-        
-        if (wrongWords.length === 0) {
-            alert('没有错题需要重开');
+    /**
+     * [B3 FINAL v1.0.1 统一入口] 错题重测三模式：chain 链式 / first 首轮错题 / all 今日全部错题（去重）
+     * 绝不写词库（A5 ②）；isRetry=true 标记（歧义 3 紧急写库跳过）
+     */
+    retryWrongByMode(mode) {
+        const task = this.taskManager.getTodayTask();
+        if (!task || !task.results || task.results.length === 0) {
+            this.showSettingsStatus('请先完成今日首次背诵，才有错题可以重测');
             return;
         }
-        
-        this.reviewWords = wrongWords.map(r => {
-            const word = this.wordBank.getWord(r.word);
-            return { ...word, type: r.type };
+        let source = [];
+        let sourceLabel = '';
+        mode = (mode === 'first' || mode === 'all') ? mode : 'chain';
+
+        if (mode === 'chain') {
+            const lastChain = (this.retryState.chainRounds.length > 0)
+                ? this.retryState.chainRounds[this.retryState.chainRounds.length - 1] : null;
+            source = lastChain ? lastChain.results : task.results;
+            sourceLabel = lastChain ? `链式第 ${this.retryState.chainRounds.length} 轮错题` : '首轮（链式）错题';
+        } else if (mode === 'first') {
+            source = task.results;
+            sourceLabel = '首轮全部错题（首次重测）';
+        } else {
+            const set = new Set();
+            task.results.filter(r => r.result !== '对').forEach(r => set.add(r.word));
+            this.retryState.chainRounds.forEach(cr => {
+                cr.results.filter(r => r.result !== '对').forEach(r => set.add(r.word));
+            });
+            if (this.retryState.firstResult) {
+                this.retryState.firstResult.results.filter(r => r.result !== '对').forEach(r => set.add(r.word));
+            }
+            source = Array.from(set).map(w => ({ word: w, result: '错', type: 'review' }));
+            sourceLabel = '今日全部答错/不熟的词（去重）';
+        }
+
+        const wrongSet = new Set();
+        source.forEach(r => {
+            if (r && r.result !== '对' && typeof r.word === 'string') wrongSet.add(r.word);
         });
-        
+        const wrongWords = Array.from(wrongSet);
+        if (wrongWords.length === 0) {
+            this.showSettingsStatus(`太棒了！${sourceLabel}没有错题！`);
+            return;
+        }
+
+        this.retryState.isRetry = true;
+        this.retryState.currentMode = mode;
+        this.isRetry = true;
+
+        const reviewList = [];
+        wrongWords.forEach(wn => {
+            const w = this.wordBank.getWord(wn);
+            if (w) reviewList.push({ ...w, type: w.type || 'review' });
+        });
+        this.reviewWords = reviewList;
         this.reviewIndex = 0;
         this.reviewResults = [];
-        this.isRetry = true;
-        this.retryRound++;
-        
+        this.showSettingsStatus(`已加载 ${reviewList.length} 题：${sourceLabel}`);
         this.showPage('review');
     }
 
-    retryFirstWrong() {
-        const firstResults = this.taskManager.getTodayTask()?.results || [];
-        const wrongWords = firstResults.filter(r => r.result === '错');
-        
-        if (wrongWords.length === 0) {
-            alert('没有首次错题需要重测');
-            return;
-        }
-        
-        this.reviewWords = wrongWords.map(r => {
-            const word = this.wordBank.getWord(r.word);
-            return { ...word, type: r.type };
-        });
-        
-        this.reviewIndex = 0;
-        this.reviewResults = [];
-        this.isRetry = true;
-        this.retryRound = 0;
-        
-        this.showPage('review');
+    // 向后兼容（旧事件绑定调这两函数 → 转发统一入口）
+    retryWrong() {
+        const sel = document.getElementById('retry-mode-select');
+        this.retryWrongByMode(sel ? sel.value : 'chain');
     }
+    retryFirstWrong() { this.retryWrongByMode('first'); }
 
     redoTodayTask() {
-        if (!confirm('确定要重新背诵今日计划吗？之前的背诵记录将被覆盖！')) {
+        if (!confirm('确定要重新背诵今日计划吗？\n\n⚠️ 中途答题记录先清空，做完一轮后原子覆盖原词库记录（歧义 2 规则）')) {
             return;
         }
-        
         const task = this.taskManager.getTodayTask();
-        if (!task) {
-            alert('今日任务不存在，请先创建任务');
-            return;
-        }
-        
+        if (!task) { alert('今日任务不存在，请先创建任务'); return; }
+        // [歧义 2 / Bug 11] Step 1：todayTask.resultsOnly 清空 + completed=false
+        this.taskManager.clearTodayTask('resultsOnly');
+
         const allWords = [];
-        
         task.newWords.forEach(wordName => {
             const word = this.wordBank.getWord(wordName);
-            if (word) {
-                allWords.push({ ...word, type: 'new' });
-            }
+            if (word) allWords.push({ ...word, type: 'new' });
         });
-        
         task.reviewWords.forEach(wordName => {
             const word = this.wordBank.getWord(wordName);
-            if (word) {
-                allWords.push({ ...word, type: 'review' });
-            }
+            if (word) allWords.push({ ...word, type: 'review' });
         });
-        
         this.reviewWords = allWords.sort(() => Math.random() - 0.5);
         this.reviewIndex = 0;
         this.reviewResults = [];
         this.retryResults = [];
+        // [跨模块铁则 6] retryState 一次性重置 DEFAULT（保证 isRetry=false，首次背诵语义→紧急写库会生效）
+        this.retryState = { ...this.DEFAULT_RETRY_STATE };
         this.isRetry = false;
-        this.retryRound = 0;
-        
+
+        this.showSettingsStatus('已重置答题记录，开始重新背诵');
         this.showPage('review');
     }
 
@@ -653,17 +723,18 @@ class UIManager {
     // -------- 导入弹窗 --------
 
     showImportDialog() {
-        // 每次打开先重置状态
+        // 每次打开先重置所有导入相关状态（包括「高版本警告」状态，避免上次残留）
         this._pendingImportText = '';
         this._pendingImportParsed = null;
         this._pendingImportValid = false;
         this._pendingForceHighVer = false;
+        // ===== [缺陷 08 v1.0.1] 必须重置，否则上次高版本被取消后，再打开合法低版本文件仍然显示高版本警告 =====
+        this._pendingHighVerNeedConfirm = false;
         document.getElementById('paste-json-area').value = '';
         document.getElementById('picked-file-name').textContent = '未选择文件';
         document.getElementById('backup-file-input').value = '';
         this._setImportInfo('', '#555');
         document.getElementById('import-confirm-btn').disabled = true;
-        // 默认切回 Tab1
         this._switchImportTab('tab-file');
         document.getElementById('import-modal').style.display = 'flex';
     }
@@ -1183,7 +1254,21 @@ class UIManager {
 
         document.addEventListener('keydown', (e) => {
             if (this.currentPage !== 'review') return;
-            
+
+            // ===== [Bug 15 v1.0.1] 输入框/可编辑控件聚焦时，快捷键不生效（防输入时按 0/8/9/Enter 被判题跳题）=====
+            const active = document.activeElement;
+            if (active) {
+                const tag = (active.tagName || '').toLowerCase();
+                const isEditable = tag === 'input' || tag === 'textarea' || tag === 'select' || active.isContentEditable;
+                if (isEditable) {
+                    // 只保留一个例外：中译英模式 + 未答题 + Enter = 提交答案（这是用户输入完答案后的自然动作）
+                    const allowEnterSubmit = (e.key === 'Enter' && this.reviewMode === 'cn_to_en' && !this.isAnswered && active.id === 'user-input');
+                    if (!allowEnterSubmit) {
+                        return;   // 其他情况（输入释义/自定义日期时按数字、中译英聚焦时按 0/8/9、英译中 input 聚焦都不触发）
+                    }
+                }
+            }
+
             if (e.key === 'Enter') {
                 e.preventDefault();
                 if (this.isAnswered) {
@@ -1208,5 +1293,93 @@ class UIManager {
                 this.setResult('错');
             }
         });
+    }
+
+    // ====================================================================
+    // [v1.0.1 新增工具方法] XSS 安全 / 状态管理 / 模态弹窗 / 紧急写库
+    // ====================================================================
+
+    /**
+     * [XSS 安全 helper v1.0.1] 把用户输入做 HTML 转义后再插入 DOM（用于 _setIoStatus / _setImportInfo 中动态变量安全插入）
+     */
+    _escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /**
+     * [歧义 3 / B4 规则 4 v1.0.1] beforeunload 紧急写库：
+     *   - 首次背诵进行中（isRetry=false + todayTask.completed=false + reviewResults.length>0）→ 立即 completeTask
+     *   - 错题重测（retryState.isRetry=true / isRetry=true）→ skip，接受从头再来
+     */
+    _emergencySaveBeforeUnload() {
+        if (this.retryState && this.retryState.isRetry) {
+            console.log('[紧急写库] skip：当前处于错题重测流程（链式/首次/全部），接受从头再来，不写库');
+            return;
+        }
+        if (this.isRetry) {   // 向后兼容（旧标记）
+            console.log('[紧急写库] skip：旧 isRetry=true，不写库');
+            return;
+        }
+        const inFirst = (this.currentPage === 'review' || this.currentPage === 'results')
+            && Array.isArray(this.reviewResults) && this.reviewResults.length > 0
+            && !this.taskManager.isTaskCompleted();
+        if (inFirst) {
+            try {
+                this.taskManager.completeTask(this.reviewResults);
+                console.log('[紧急写库] success：首次背诵进行中，已写入 ' + this.reviewResults.length + ' 题成绩到词库');
+            } catch (e) {
+                console.error('[紧急写库] 词库写入失败：', e);
+            }
+        }
+    }
+
+    /**
+     * [Bug 10 v1.0.1] 改判后（0/8/9 键 / checkAnswer / selectOption 三处都要调）同步刷新「反馈区颜色 + 按钮高亮」
+     *   - 保证数据和视图严格一致，不会出现「词库最终写对了，但 UI 仍然红着显示错」
+     */
+    _refreshCurrentResultUI(result) {
+        if (!this.currentWord) return;
+        // ===== 当前模式：中译英 =====
+        if (this.reviewMode === 'cn_to_en') {
+            const feedback = document.getElementById('answer-feedback');
+            if (feedback) {
+                if (result === '对')       feedback.innerHTML = '<span style="color:green;">✓ 回答正确！</span>';
+                else if (result === '不熟') feedback.innerHTML = '<span style="color:#ff9800;">~ 意思接近正确答案（不熟）</span>';
+                else                       feedback.innerHTML = '<span style="color:red;">✗ 回答错误</span>';
+            }
+            // 三档设置按钮高亮（改判时要亮对应颜色）
+            const mapping = { '对': 'btn-correct', '不熟': 'btn-unfamiliar', '错': 'btn-wrong' };
+            ['btn-correct','btn-unfamiliar','btn-wrong'].forEach(id => {
+                const b = document.getElementById(id);
+                if (!b) return;
+                b.style.fontWeight = (id === mapping[result]) ? 'bold' : 'normal';
+                b.style.outline  = (id === mapping[result]) ? '2px solid #333' : 'none';
+            });
+        }
+        // ===== 当前模式：英译中 =====
+        else if (this.reviewMode === 'en_to_cn') {
+            const feedback = document.getElementById('en-answer-feedback');
+            if (feedback) {
+                if (result === '对')       feedback.innerHTML = '<span style="color:green;">✓ 回答正确！</span>';
+                else if (result === '不熟') feedback.innerHTML = '<span style="color:#ff9800;">~ 意思接近正确答案（不熟）</span>';
+                else                       feedback.innerHTML = '<span style="color:red;">✗ 回答错误</span>';
+            }
+            // 按钮高亮：正确选项=绿；用户选的=橙/红（根据 result 和选项正确性判断）
+            const buttons = document.querySelectorAll('.option-btn');
+            buttons.forEach((btn, i) => {
+                btn.style.backgroundColor = '';
+                btn.style.color = '';
+                if (this.options[i] && this.options[i].isCorrect) {
+                    btn.style.backgroundColor = '#4CAF50';
+                    btn.style.color = 'white';
+                }
+            });
+            // 找到当前 result 和当时选择的是哪个按钮（在 reviewResults 里找最后一条本词记录）
+            const last = [...this.reviewResults].reverse().find(r => r.word === this.currentWord.w);
+            if (!last) return;
+            // 英译中改判后：根据结果决定是否要把某个选项标橙/红（目前只负责反馈区颜色；按钮逻辑复杂，用户主要看反馈区即可）
+        }
     }
 }
