@@ -16,7 +16,7 @@
 
 - 当前程序版本：**v1.0.1**
 - 备份格式版本：**v1.0.0**（schema 结构自首发未变）
-- 默认词库：3146 个单词（[data/defaultWords.js](../../data/defaultWords.js)）
+- 默认词库：3282 个单词（[data/defaultWords.js](../../data/defaultWords.js)）
 
 ---
 
@@ -30,7 +30,7 @@ NEWordRemberer/
 ├── README.md                 # 项目说明
 │
 ├── data/
-│   └── defaultWords.js       # 默认词库（3146 词）
+│   └── defaultWords.js       # 默认词库（3282 词）
 │
 ├── docs/                     # 非代码数据文件
 │   ├── changelog/            # CHANGELOG_v1.0.1.md、critics.md
@@ -88,7 +88,7 @@ app.js
     // ... 省略 r3~r9
     "r10D": "", "r10R": ""            // 第 10 轮（最大轮次）
   }
-  // ... 3146 个 WordObject
+  // ... 3282 个 WordObject
 ]
 ```
 

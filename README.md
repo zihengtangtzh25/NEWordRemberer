@@ -82,7 +82,7 @@
 - **自定义今日日期**：用于模拟调试记忆曲线算法（不影响真实系统时间），可不设置；v1.0.1 起日期范围扩展为 2000-01-01 ~ 当前年份+2-12-31，支持跨年到期测试；非法格式 / 不存在的日期（如 2026-13-40）会被拒绝写入并提示
 - **清除所有背诵记录**（红色高危按钮）：仅清空 r1~r10 日期/结果字段，保留单词释义；v1.0.1 底层 API 已拆分：
   - `clearReviewRecordsOnly()`：只清 r1~r10（按钮当前调用此方法）
-  - `factoryResetKeepDefaultWords()`：真正的恢复出厂（清词库回到默认 3146 词 + 清 customDate，供未来设置页「彻底重置」按钮使用）
+  - `factoryResetKeepDefaultWords()`：真正的恢复出厂（清词库回到默认 3282 词 + 清 customDate，供未来设置页「彻底重置」按钮使用）
 - **🆕 版本号徽章**：标题栏右上角显示 `v1.0.3`，悬停显示 程序版本号 / 备份格式版本号
 
 ### 📱 响应式设计
@@ -101,7 +101,7 @@ NEWordRemberer/
 ├── README.md                 # 本文件（含版本号与更迭注意事项）
 │
 ├── data/
-│   └── defaultWords.js       # 默认词库（3146 个单词，首次使用自动加载）
+│   └── defaultWords.js       # 默认词库（3282 个单词，首次使用自动加载）
 │
 ├── docs/                     # 🆕 非代码数据文件（v1.0.1 起统一收纳）
 │   ├── changelog/            # 版本更新文件
@@ -128,7 +128,7 @@ NEWordRemberer/
 ## 🚀 使用方法
 
 1. **启动**：直接双击 `index.html` 用浏览器打开（推荐 Chrome / Edge）
-2. **初始化**：首次使用自动加载 `data/defaultWords.js` 的 3146 词到 localStorage
+2. **初始化**：首次使用自动加载 `data/defaultWords.js` 的 3282 词到 localStorage
 3. **（可选）系统设置**：如需调试记忆曲线 → 设置自定义日期
 4. **创建任务**：首页 → 计划区 → 填写「背诵/复习数量」→ 「创建任务」
 5. **开始背诵**：创建后点击「开始背诵」进入背诵页
@@ -173,7 +173,7 @@ NEWordRemberer/
 
 ## 📦 数据说明
 
-- 默认词库：3146 个单词（详见 `data/defaultWords.js`）
+- 默认词库：3282 个单词（详见 `data/defaultWords.js`）
 - 数据全部存在浏览器 localStorage 中；**清浏览器缓存/无痕模式会导致丢失，务必定期导出备份**
 - localStorage 三个键的详细结构、字段说明、版本兼容性请参考：
   - 📄 [BACKUP_FORMAT.md](file:///g:/19725/code_part/project/NEWordRemberer/docs/format/BACKUP_FORMAT.md)
